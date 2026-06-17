@@ -1,0 +1,272 @@
+import os
+import re
+from datetime import datetime, timedelta
+
+import discord
+from discord.ext import commands
+from dotenv import load_dotenv
+
+import db
+import calendar_image
+
+load_dotenv()
+
+TOKEN = os.getenv("DISCORD_TOKEN")
+
+intents = discord.Intents.default()
+bot = commands.Bot(command_prefix="!", intents=intents)
+
+
+@bot.event
+async def on_ready():
+    await db.init_db()
+    print(f"Logged in as {bot.user} (ID: {bot.user.id})")
+    try:
+        synced = await bot.tree.sync()
+        print(f"Synced {len(synced)} slash command(s) globally")
+    except Exception as e:
+        print(f"Failed to sync commands: {e}")
+
+
+@bot.tree.command(name="ping", description="봇 응답 확인")
+async def ping(interaction: discord.Interaction):
+    await interaction.response.send_message(
+        f"Pong! 응답 지연: {round(bot.latency * 1000)}ms"
+    )
+
+
+def validate_time(t: str) -> bool:
+    match = re.fullmatch(r"(오전|오후)\s+(\d{1,2}):([0-5]\d)", t.strip())
+    if not match:
+        return False
+    hour = int(match.group(2))
+    return 1 <= hour <= 12
+
+
+def _to_minutes(t: str) -> int:
+    m = re.fullmatch(r"(오전|오후)\s+(\d{1,2}):([0-5]\d)", t.strip())
+    ampm, h, mi = m.group(1), int(m.group(2)), int(m.group(3))
+    if ampm == "오후" and h != 12:
+        h += 12
+    elif ampm == "오전" and h == 12:
+        h = 0
+    return h * 60 + mi
+
+
+@bot.tree.command(name="일정추가", description="일정을 추가합니다")
+@discord.app_commands.describe(
+    날짜="날짜 (형식: YYYY-MM-DD, 예: 2025-07-10) 또는 오늘",
+    제목="일정 제목",
+    시작시간="시작 시간 (예: 오전 9:00, 오후 2:30, 선택)",
+    종료시간="종료 시간 (예: 오전 11:00, 오후 6:00, 선택)",
+    설명="일정 설명 (선택)",
+)
+async def add_schedule(
+    interaction: discord.Interaction,
+    날짜: str,
+    제목: str,
+    시작시간: str = None,
+    종료시간: str = None,
+    설명: str = None,
+):
+    if 날짜.strip() == "오늘":
+        날짜 = datetime.today().strftime("%Y-%m-%d")
+    else:
+        try:
+            datetime.strptime(날짜, "%Y-%m-%d")
+        except ValueError:
+            await interaction.response.send_message(
+                "날짜 형식이 올바르지 않습니다. `YYYY-MM-DD` 형식으로 입력하거나 `오늘`을 입력해주세요.\n예) `2025-07-10`",
+                ephemeral=True,
+            )
+            return
+
+    if 시작시간 and not validate_time(시작시간):
+        await interaction.response.send_message(
+            "시작 시간 형식이 올바르지 않습니다.\n예) `오전 9:00` / `오후 2:30`",
+            ephemeral=True,
+        )
+        return
+
+    if 종료시간 and not validate_time(종료시간):
+        await interaction.response.send_message(
+            "종료 시간 형식이 올바르지 않습니다.\n예) `오전 11:00` / `오후 6:00`",
+            ephemeral=True,
+        )
+        return
+
+    await db.add_schedule(
+        interaction.guild_id, 날짜, 제목, 설명, 시작시간, 종료시간,
+        user_id=interaction.user.id,
+        user_name=interaction.user.display_name,
+    )
+
+    # 자정을 넘는 일정이면 다음 날에도 자동 등록
+    next_date = None
+    if 시작시간 and 종료시간 and _to_minutes(시작시간) > _to_minutes(종료시간):
+        next_date = (datetime.strptime(날짜, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+        await db.add_schedule(
+            interaction.guild_id, next_date, 제목, 설명, 시작시간, 종료시간,
+            user_id=interaction.user.id,
+            user_name=interaction.user.display_name,
+        )
+
+    embed = discord.Embed(title="일정 추가 완료", color=discord.Color.green())
+    날짜표시 = f"{날짜} ~ {next_date}" if next_date else 날짜
+    embed.add_field(name="날짜", value=날짜표시, inline=True)
+    embed.add_field(name="제목", value=제목, inline=True)
+    if 시작시간 or 종료시간:
+        시간표시 = f"{시작시간 or '?'} ~ {종료시간 or '?'}"
+        embed.add_field(name="시간", value=시간표시, inline=True)
+    if next_date:
+        embed.add_field(name="안내", value="자정을 넘는 일정으로 다음 날에도 자동 등록됐습니다.", inline=False)
+    if 설명:
+        embed.add_field(name="설명", value=설명, inline=False)
+
+    await interaction.response.send_message(embed=embed)
+
+
+@bot.tree.command(name="일정목록", description="특정 날짜의 일정 목록을 보여줍니다")
+@discord.app_commands.describe(날짜="날짜 (YYYY-MM-DD 또는 오늘)")
+async def list_schedules(interaction: discord.Interaction, 날짜: str):
+    if 날짜.strip() == "오늘":
+        날짜 = datetime.today().strftime("%Y-%m-%d")
+    else:
+        try:
+            datetime.strptime(날짜, "%Y-%m-%d")
+        except ValueError:
+            await interaction.response.send_message(
+                "날짜 형식이 올바르지 않습니다. `YYYY-MM-DD` 또는 `오늘`을 입력해주세요.",
+                ephemeral=True,
+            )
+            return
+
+    rows = await db.get_schedules_by_date(interaction.guild_id, 날짜)
+
+    if not rows:
+        await interaction.response.send_message(f"`{날짜}` 에 등록된 일정이 없습니다.", ephemeral=True)
+        return
+
+    embed = discord.Embed(title=f"{날짜} 일정 목록", color=discord.Color.blue())
+    for row in rows:
+        lines = [f"ID: `{row['id']}`"]
+        if row["start_time"] or row["end_time"]:
+            lines.append(f"시간: {row['start_time'] or '?'} ~ {row['end_time'] or '?'}")
+        if row["description"]:
+            lines.append(row["description"])
+        if row["user_name"]:
+            lines.append(f"등록자: {row['user_name']}")
+        embed.add_field(name=row["title"], value="\n".join(lines), inline=False)
+
+    embed.set_footer(text="수정: /일정수정 [ID]  |  삭제: /일정삭제 [ID]")
+    await interaction.response.send_message(embed=embed)
+
+
+@bot.tree.command(name="일정삭제", description="일정을 삭제합니다")
+@discord.app_commands.describe(id="삭제할 일정 ID (/일정목록에서 확인)")
+async def delete_schedule(interaction: discord.Interaction, id: int):
+    result = await db.delete_schedule(id, interaction.guild_id, interaction.user.id)
+    messages = {
+        "ok":        f"ID `{id}` 일정을 삭제했습니다.",
+        "not_found": f"ID `{id}` 일정을 찾을 수 없습니다.",
+        "forbidden": "본인이 등록한 일정만 삭제할 수 있습니다.",
+    }
+    await interaction.response.send_message(messages[result], ephemeral=True)
+
+
+@bot.tree.command(name="일정수정", description="등록한 일정을 수정합니다")
+@discord.app_commands.describe(
+    id="수정할 일정 ID (/일정목록에서 확인)",
+    날짜="변경할 날짜 (YYYY-MM-DD 또는 오늘, 선택)",
+    제목="변경할 제목 (선택)",
+    시작시간="변경할 시작 시간, 삭제하려면 없음 (선택)",
+    종료시간="변경할 종료 시간, 삭제하려면 없음 (선택)",
+    설명="변경할 설명, 삭제하려면 없음 (선택)",
+)
+async def edit_schedule(
+    interaction: discord.Interaction,
+    id: int,
+    날짜: str = None,
+    제목: str = None,
+    시작시간: str = None,
+    종료시간: str = None,
+    설명: str = None,
+):
+    if 날짜 is not None:
+        if 날짜.strip() == "오늘":
+            날짜 = datetime.today().strftime("%Y-%m-%d")
+        else:
+            try:
+                datetime.strptime(날짜, "%Y-%m-%d")
+            except ValueError:
+                await interaction.response.send_message(
+                    "날짜 형식이 올바르지 않습니다. `YYYY-MM-DD` 또는 `오늘`을 입력해주세요.",
+                    ephemeral=True,
+                )
+                return
+
+    if 시작시간 is not None and 시작시간 != "없음" and not validate_time(시작시간):
+        await interaction.response.send_message(
+            "시작 시간 형식이 올바르지 않습니다.\n예) `오전 9:00` / `오후 2:30`",
+            ephemeral=True,
+        )
+        return
+
+    if 종료시간 is not None and 종료시간 != "없음" and not validate_time(종료시간):
+        await interaction.response.send_message(
+            "종료 시간 형식이 올바르지 않습니다.\n예) `오전 11:00` / `오후 6:00`",
+            ephemeral=True,
+        )
+        return
+
+    updates = {}
+    if 날짜     is not None: updates["date"]        = 날짜
+    if 제목     is not None: updates["title"]       = 제목
+    if 시작시간 is not None: updates["start_time"]  = None if 시작시간 == "없음" else 시작시간
+    if 종료시간 is not None: updates["end_time"]    = None if 종료시간 == "없음" else 종료시간
+    if 설명     is not None: updates["description"] = None if 설명     == "없음" else 설명
+
+    if not updates:
+        await interaction.response.send_message(
+            "수정할 내용을 하나 이상 입력해주세요.", ephemeral=True
+        )
+        return
+
+    result = await db.update_schedule(id, interaction.guild_id, interaction.user.id, updates)
+    messages = {
+        "ok":        f"ID `{id}` 일정을 수정했습니다.",
+        "not_found": f"ID `{id}` 일정을 찾을 수 없습니다.",
+        "forbidden": "본인이 등록한 일정만 수정할 수 있습니다.",
+    }
+    await interaction.response.send_message(messages[result], ephemeral=True)
+
+
+@bot.tree.command(name="캘린더", description="월간 캘린더를 이미지로 보여줍니다")
+@discord.app_commands.describe(
+    년도="조회할 년도 (기본: 올해)",
+    월="조회할 월 1~12 (기본: 이번 달)",
+)
+async def show_calendar(
+    interaction: discord.Interaction,
+    년도: int = None,
+    월: int = None,
+):
+    today = datetime.today()
+    year  = 년도 or today.year
+    month = 월  or today.month
+
+    if not (1 <= month <= 12):
+        await interaction.response.send_message(
+            "월은 1~12 사이로 입력해주세요.", ephemeral=True
+        )
+        return
+
+    await interaction.response.defer()
+
+    schedules = await db.get_schedules_by_month(interaction.guild_id, year, month)
+    buf = calendar_image.draw_calendar(year, month, schedules)
+    file = discord.File(buf, filename=f"calendar_{year}_{month:02d}.png")
+    await interaction.followup.send(file=file)
+
+
+bot.run(TOKEN)
