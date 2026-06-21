@@ -3,11 +3,12 @@ import re
 from datetime import datetime, timedelta
 
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from dotenv import load_dotenv
 
 import db
 import calendar_image
+import owcs as owcs_module
 
 load_dotenv()
 
@@ -26,6 +27,41 @@ async def on_ready():
         print(f"Synced {len(synced)} slash command(s) globally")
     except Exception as e:
         print(f"Failed to sync commands: {e}")
+    if not check_owcs.is_running():
+        check_owcs.start()
+
+
+@tasks.loop(minutes=10)
+async def check_owcs():
+    try:
+        schedules = await owcs_module.fetch_schedules()
+        targets = owcs_module.get_notify_targets(schedules)
+        for schedule in targets:
+            match_dt = schedule["matchDateTime"]
+            if await db.is_owcs_notified(match_dt):
+                continue
+            await db.mark_owcs_notified(match_dt)
+
+            info = owcs_module.format_info(schedule)
+            embed = discord.Embed(
+                title="🎮 OWCS 경기 1시간 전 알림!",
+                color=discord.Color.orange(),
+            )
+            embed.add_field(name="스테이지", value=info["stage"], inline=False)
+            embed.add_field(name="시작 시간", value=info["time"], inline=True)
+            if info["venue"]:
+                embed.add_field(name="경기장", value=info["venue"], inline=True)
+            embed.add_field(name="경기 목록", value=info["matchups"], inline=False)
+            if info["video_url"]:
+                embed.add_field(name="📺 시청 링크", value=info["video_url"], inline=False)
+
+            channels = await db.get_all_owcs_channels()
+            for guild_id, channel_id in channels:
+                ch = bot.get_channel(channel_id)
+                if ch:
+                    await ch.send(embed=embed)
+    except Exception as e:
+        print(f"[OWCS 알림 오류] {e}")
 
 
 @bot.tree.command(name="ping", description="봇 응답 확인")
@@ -267,6 +303,44 @@ async def show_calendar(
     buf = calendar_image.draw_calendar(year, month, schedules)
     file = discord.File(buf, filename=f"calendar_{year}_{month:02d}.png")
     await interaction.followup.send(file=file)
+
+
+@bot.tree.command(name="owcs알림설정", description="OWCS 경기 1시간 전 알림을 받을 채널을 설정합니다")
+@discord.app_commands.describe(채널="알림을 받을 채널")
+async def set_owcs_channel(interaction: discord.Interaction, 채널: discord.TextChannel):
+    await db.set_owcs_channel(interaction.guild_id, 채널.id)
+    await interaction.response.send_message(
+        f"{채널.mention} 채널에 OWCS 경기 시작 1시간 전 알림을 보냅니다.", ephemeral=True
+    )
+
+
+@bot.tree.command(name="owcs일정", description="다가오는 OWCS 경기 일정을 보여줍니다")
+@discord.app_commands.describe(일수="며칠 이내 일정을 볼지 (기본: 7일)")
+async def show_owcs_schedule(interaction: discord.Interaction, 일수: int = 7):
+    await interaction.response.defer()
+    try:
+        schedules = await owcs_module.fetch_schedules()
+        upcoming = owcs_module.get_upcoming(schedules, days=일수)
+    except Exception as e:
+        await interaction.followup.send(f"일정을 불러오지 못했습니다: {e}", ephemeral=True)
+        return
+
+    if not upcoming:
+        await interaction.followup.send(f"향후 {일수}일 내 예정된 OWCS 경기가 없습니다.")
+        return
+
+    embed = discord.Embed(
+        title=f"📅 OWCS 경기 일정 (향후 {일수}일)",
+        color=discord.Color.blue(),
+    )
+    for s in upcoming[:8]:
+        info = owcs_module.format_info(s)
+        embed.add_field(
+            name=f"{info['time']} | {info['stage']}",
+            value=info["matchups"],
+            inline=False,
+        )
+    await interaction.followup.send(embed=embed)
 
 
 bot.run(TOKEN)

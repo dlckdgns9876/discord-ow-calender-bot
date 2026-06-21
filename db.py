@@ -26,6 +26,54 @@ async def init_db():
                 await db.execute(f"ALTER TABLE schedules ADD COLUMN {col}")
             except Exception:
                 pass
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS owcs_channels (
+                guild_id   INTEGER PRIMARY KEY,
+                channel_id INTEGER NOT NULL
+            )
+        """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS owcs_notified (
+                match_dt TEXT PRIMARY KEY
+            )
+        """)
+        await db.commit()
+
+
+# ── OWCS 알림 채널 ────────────────────────────────────────
+
+async def set_owcs_channel(guild_id: int, channel_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR REPLACE INTO owcs_channels (guild_id, channel_id) VALUES (?, ?)",
+            (guild_id, channel_id),
+        )
+        await db.commit()
+
+
+async def get_all_owcs_channels() -> list:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT guild_id, channel_id FROM owcs_channels") as cur:
+            return await cur.fetchall()
+
+
+async def is_owcs_notified(match_dt: str) -> bool:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT 1 FROM owcs_notified WHERE match_dt = ?", (match_dt,)
+        ) as cur:
+            return await cur.fetchone() is not None
+
+
+async def mark_owcs_notified(match_dt: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR IGNORE INTO owcs_notified (match_dt) VALUES (?)", (match_dt,)
+        )
+        # 30일 이상 된 알림 기록 정리
+        await db.execute(
+            "DELETE FROM owcs_notified WHERE match_dt < datetime('now', '-30 days')"
+        )
         await db.commit()
 
 
