@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 import db
 import calendar_image
 import owcs as owcs_module
+import owcs_image
 
 load_dotenv()
 
@@ -315,13 +316,13 @@ async def set_owcs_channel(interaction: discord.Interaction, 채널: discord.Tex
     )
 
 
-@bot.tree.command(name="owcs일정", description="다가오는 OWCS 경기 일정을 보여줍니다")
+@bot.tree.command(name="owcs일정", description="다가오는 OWCS 경기 일정을 날짜별 이미지로 보여줍니다")
 @discord.app_commands.describe(일수="며칠 이내 일정을 볼지 (기본: 7일)")
 async def show_owcs_schedule(interaction: discord.Interaction, 일수: int = 7):
     await interaction.response.defer()
     try:
         schedules = await owcs_module.fetch_schedules()
-        upcoming = owcs_module.get_upcoming(schedules, days=일수)
+        upcoming  = owcs_module.get_upcoming(schedules, days=일수)
     except Exception as e:
         await interaction.followup.send(f"일정을 불러오지 못했습니다: {e}", ephemeral=True)
         return
@@ -330,32 +331,20 @@ async def show_owcs_schedule(interaction: discord.Interaction, 일수: int = 7):
         await interaction.followup.send(f"향후 {일수}일 내 예정된 OWCS 경기가 없습니다.")
         return
 
+    day_groups = owcs_module.group_by_day(upcoming)
     has_ongoing = any(owcs_module.is_ongoing(m) for m in upcoming)
-    embed = discord.Embed(
-        title=f"📅 OWCS 경기 일정 (향후 {일수}일)",
-        color=discord.Color.red() if has_ongoing else discord.Color.blue(),
-    )
-    for m in upcoming[:10]:
-        info = owcs_module.format_info(m)
-        embed.add_field(
-            name=info["time"],
-            value=f"{info['label']}\n{info['matchup']}",
-            inline=False,
-        )
+
+    files = []
+    for day_key, day_matches in list(day_groups.items())[:4]:
+        buf = await owcs_image.draw_match_day(day_matches)
+        files.append(discord.File(buf, filename=f"owcs_{day_key}.png"))
+
+    content = f"📅 **OWCS 경기 일정 (향후 {일수}일)**"
     if has_ongoing:
-        embed.add_field(
-            name="📺 공식 방송",
-            value=f"[SOOP 바로가기]({owcs_module.SOOP_URL})",
-            inline=False,
-        )
+        content += f"\n🔴 현재 경기 진행 중! 📺 [SOOP 바로가기]({owcs_module.SOOP_URL})"
+    content += "\n*출처: Liquipedia*"
 
-    # 팀 로고: 첫 번째 경기 홈팀 기준
-    logo = await owcs_module.fetch_team_logo(upcoming[0].get("team1", ""))
-    if logo:
-        embed.set_thumbnail(url=logo)
-
-    embed.set_footer(text="출처: Liquipedia")
-    await interaction.followup.send(embed=embed)
+    await interaction.followup.send(content=content, files=files)
 
 
 bot.run(TOKEN)

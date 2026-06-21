@@ -139,6 +139,15 @@ def get_upcoming(matches: list, days: int = 7) -> list:
     return [m for m in matches if now - timedelta(hours=3) <= m["dt"] <= cutoff]
 
 
+def group_by_day(matches: list) -> dict:
+    """날짜 문자열(YYYY-MM-DD) → 경기 리스트 딕셔너리"""
+    groups: dict[str, list] = {}
+    for m in matches:
+        key = m["dt"].strftime("%Y-%m-%d")
+        groups.setdefault(key, []).append(m)
+    return dict(sorted(groups.items()))
+
+
 def get_notify_targets(matches: list) -> list:
     now = datetime.now(KST)
     return [m for m in matches if 50 <= (m["dt"] - now).total_seconds() / 60 <= 70]
