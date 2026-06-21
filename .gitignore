@@ -5,3 +5,4 @@ __pycache__/
 *.db
 .venv/
 venv/
+owcs_cache.json

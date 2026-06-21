@@ -1,3 +1,4 @@
+import os
 import re
 import time
 import gzip
@@ -22,11 +23,49 @@ TOURNAMENT_PAGES = [
     ("OWCS Korea ST2 플레이오프", "Overwatch_Champions_Series/2026/Asia/Stage_2/Korea"),
 ]
 
+_BASE       = os.path.dirname(os.path.abspath(__file__))
+CACHE_FILE  = os.path.join(_BASE, "owcs_cache.json")
 _cache: dict = {"matches": [], "updated_at": 0}
-CACHE_TTL  = 3600
+CACHE_TTL   = 3600
 _fetch_lock = asyncio.Lock()
 
 _logo_cache: dict[str, str | None] = {}
+
+
+def _load_cache_from_file():
+    """봇 시작 시 디스크 캐시 로드"""
+    global _cache
+    try:
+        if os.path.exists(CACHE_FILE):
+            with open(CACHE_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            matches = []
+            for m in data.get("matches", []):
+                m["dt"] = datetime.fromisoformat(m["dt"])
+                matches.append(m)
+            _cache = {"matches": matches, "updated_at": data.get("updated_at", 0)}
+            print(f"[OWCS] 디스크 캐시 로드: {len(matches)}경기")
+    except Exception as e:
+        print(f"[OWCS] 캐시 로드 실패: {e}")
+
+
+def _save_cache_to_file():
+    """캐시를 디스크에 저장"""
+    try:
+        data = {
+            "updated_at": _cache["updated_at"],
+            "matches": [
+                {**{k: v for k, v in m.items() if k != "dt"}, "dt": m["dt"].isoformat()}
+                for m in _cache["matches"]
+            ],
+        }
+        with open(CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+    except Exception as e:
+        print(f"[OWCS] 캐시 저장 실패: {e}")
+
+
+_load_cache_from_file()
 
 
 async def _get_json(session: aiohttp.ClientSession, url: str, params: dict) -> dict:
@@ -161,6 +200,7 @@ async def fetch_schedules() -> list:
                 unique.append(m)
 
         _cache = {"matches": sorted(unique, key=lambda x: x["dt"]), "updated_at": time.time()}
+        _save_cache_to_file()
         return _cache["matches"]
 
 
