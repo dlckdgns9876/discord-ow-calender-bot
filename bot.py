@@ -43,6 +43,8 @@ async def check_owcs():
             await db.mark_owcs_notified(mid)
 
             info = owcs_module.format_info(match)
+            logo = await owcs_module.fetch_team_logo(info["team1"])
+
             embed = discord.Embed(
                 title="🎮 OWCS 경기 1시간 전 알림!",
                 color=discord.Color.orange(),
@@ -50,6 +52,9 @@ async def check_owcs():
             embed.add_field(name="대회", value=info["label"], inline=False)
             embed.add_field(name="시작 시간", value=info["time"], inline=True)
             embed.add_field(name="경기", value=info["matchup"], inline=False)
+            embed.add_field(name="📺 공식 방송", value=f"[SOOP 바로가기]({owcs_module.SOOP_URL})", inline=False)
+            if logo:
+                embed.set_thumbnail(url=logo)
 
             channels = await db.get_all_owcs_channels()
             for guild_id, channel_id in channels:
@@ -325,17 +330,30 @@ async def show_owcs_schedule(interaction: discord.Interaction, 일수: int = 7):
         await interaction.followup.send(f"향후 {일수}일 내 예정된 OWCS 경기가 없습니다.")
         return
 
+    has_ongoing = any(owcs_module.is_ongoing(m) for m in upcoming)
     embed = discord.Embed(
         title=f"📅 OWCS 경기 일정 (향후 {일수}일)",
-        color=discord.Color.blue(),
+        color=discord.Color.red() if has_ongoing else discord.Color.blue(),
     )
     for m in upcoming[:10]:
         info = owcs_module.format_info(m)
         embed.add_field(
-            name=f"{info['time']}",
+            name=info["time"],
             value=f"{info['label']}\n{info['matchup']}",
             inline=False,
         )
+    if has_ongoing:
+        embed.add_field(
+            name="📺 공식 방송",
+            value=f"[SOOP 바로가기]({owcs_module.SOOP_URL})",
+            inline=False,
+        )
+
+    # 팀 로고: 첫 번째 경기 홈팀 기준
+    logo = await owcs_module.fetch_team_logo(upcoming[0].get("team1", ""))
+    if logo:
+        embed.set_thumbnail(url=logo)
+
     embed.set_footer(text="출처: Liquipedia")
     await interaction.followup.send(embed=embed)
 
