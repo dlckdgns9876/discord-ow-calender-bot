@@ -36,24 +36,20 @@ async def check_owcs():
     try:
         schedules = await owcs_module.fetch_schedules()
         targets = owcs_module.get_notify_targets(schedules)
-        for schedule in targets:
-            match_dt = schedule["matchDateTime"]
-            if await db.is_owcs_notified(match_dt):
+        for match in targets:
+            mid = owcs_module.match_id(match)
+            if await db.is_owcs_notified(mid):
                 continue
-            await db.mark_owcs_notified(match_dt)
+            await db.mark_owcs_notified(mid)
 
-            info = owcs_module.format_info(schedule)
+            info = owcs_module.format_info(match)
             embed = discord.Embed(
                 title="🎮 OWCS 경기 1시간 전 알림!",
                 color=discord.Color.orange(),
             )
-            embed.add_field(name="스테이지", value=info["stage"], inline=False)
+            embed.add_field(name="대회", value=info["label"], inline=False)
             embed.add_field(name="시작 시간", value=info["time"], inline=True)
-            if info["venue"]:
-                embed.add_field(name="경기장", value=info["venue"], inline=True)
-            embed.add_field(name="경기 목록", value=info["matchups"], inline=False)
-            if info["video_url"]:
-                embed.add_field(name="📺 시청 링크", value=info["video_url"], inline=False)
+            embed.add_field(name="경기", value=info["matchup"], inline=False)
 
             channels = await db.get_all_owcs_channels()
             for guild_id, channel_id in channels:
@@ -333,13 +329,14 @@ async def show_owcs_schedule(interaction: discord.Interaction, 일수: int = 7):
         title=f"📅 OWCS 경기 일정 (향후 {일수}일)",
         color=discord.Color.blue(),
     )
-    for s in upcoming[:8]:
-        info = owcs_module.format_info(s)
+    for m in upcoming[:10]:
+        info = owcs_module.format_info(m)
         embed.add_field(
-            name=f"{info['time']} | {info['stage']}",
-            value=info["matchups"],
+            name=f"{info['time']}",
+            value=f"{info['label']}\n{info['matchup']}",
             inline=False,
         )
+    embed.set_footer(text="출처: Liquipedia")
     await interaction.followup.send(embed=embed)
 
 

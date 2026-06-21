@@ -1,82 +1,130 @@
+import re
+import time
 import aiohttp
 from datetime import datetime, timezone, timedelta
 
-SCHEDULE_URL = "https://godgameow.com/api/schedules/calendar"
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-    "Accept": "application/json",
-    "Referer": "https://godgameow.com/",
-}
+LIQUIPEDIA_API = "https://liquipedia.net/overwatch/api.php"
 KST = timezone(timedelta(hours=9))
 
-STAGE_KO = {
-    "PRE_SEASON": "프리시즌",
-    "STAGE_1": "스테이지 1",
-    "STAGE_2": "스테이지 2",
-    "STAGE_3": "스테이지 3",
-    "PLAYOFF": "플레이오프",
-    "GRAND_FINAL": "그랜드 파이널",
+# Liquipedia 이용약관 준수: User-Agent에 연락처 명시
+HEADERS = {
+    "User-Agent": "DiscordOWCSBot/1.0 (personal Discord bot; contact: chang431@gmail.com)",
+    "Accept-Encoding": "gzip",
 }
-PHASE_KO = {
-    "REGULAR": "정규 시즌",
-    "BOOTCAMP": "부트캠프",
-    "PLAYOFF": "플레이오프",
-    "FINAL": "파이널",
-    "GRAND_FINAL": "그랜드 파이널",
-}
+
+# 시즌별 페이지 목록 (스테이지 추가될 때 여기에 추가)
+TOURNAMENT_PAGES = [
+    ("OWCS Korea ST1 정규시즌", "Overwatch_Champions_Series/2026/Asia/Stage_1/Korea/Regular_Season"),
+    ("OWCS Korea ST1 플레이오프", "Overwatch_Champions_Series/2026/Asia/Stage_1/Korea"),
+    ("OWCS Korea ST2",           "Overwatch_Champions_Series/2026/Asia/Stage_2/Korea"),
+]
+
+# 캐시: 1시간마다 갱신 (Liquipedia 부하 최소화)
+_cache: dict = {"matches": [], "updated_at": 0}
+CACHE_TTL = 3600
+
+
+async def _fetch_wikitext(page: str) -> str:
+    params = {"action": "parse", "page": page, "prop": "wikitext", "format": "json"}
+    async with aiohttp.ClientSession() as session:
+        async with session.get(
+            LIQUIPEDIA_API, params=params, headers=HEADERS,
+            timeout=aiohttp.ClientTimeout(total=15),
+        ) as resp:
+            data = await resp.json(content_type=None)
+            return data.get("parse", {}).get("wikitext", {}).get("*", "")
+
+
+def _parse_matches(wikitext: str, label: str) -> list:
+    """위키텍스트 → 경기 리스트"""
+    matches = []
+    current: dict = {}
+
+    for line in wikitext.split("\n"):
+        line = line.strip()
+
+        # 날짜 파싱: |date=2026-03-20 - 17:30 {{Abbr/KST}}
+        m = re.match(
+            r"\|date=(\d{4}-\d{2}-\d{2})\s*-\s*(\d{1,2}:\d{2})\s*\{\{Abbr/KST\}\}", line
+        )
+        if m:
+            if current.get("dt") and current.get("team1") and current.get("team2"):
+                matches.append(dict(current))
+            dt = datetime.strptime(
+                f"{m.group(1)} {m.group(2)}", "%Y-%m-%d %H:%M"
+            ).replace(tzinfo=KST)
+            current = {"dt": dt, "label": label}
+            continue
+
+        # 팀1
+        op1 = re.match(r"\|opponent1=\{\{TeamOpponent\|([^|}\n]+)", line)
+        if op1 and "dt" in current:
+            current["team1"] = op1.group(1).strip()
+            continue
+
+        # 팀2
+        op2 = re.match(r"\|opponent2=\{\{TeamOpponent\|([^|}\n]+)", line)
+        if op2 and "dt" in current:
+            current["team2"] = op2.group(1).strip()
+
+    if current.get("dt") and current.get("team1") and current.get("team2"):
+        matches.append(current)
+
+    return matches
 
 
 async def fetch_schedules() -> list:
-    timeout = aiohttp.ClientTimeout(total=10)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.get(SCHEDULE_URL, headers=HEADERS) as resp:
-            data = await resp.json(content_type=None)
-            return data.get("data", [])
+    """캐시된 경기 목록 반환 (TTL 1시간)"""
+    global _cache
+    if time.time() - _cache["updated_at"] < CACHE_TTL:
+        return _cache["matches"]
+
+    all_matches = []
+    for label, page in TOURNAMENT_PAGES:
+        try:
+            wikitext = await _fetch_wikitext(page)
+            if wikitext:
+                all_matches.extend(_parse_matches(wikitext, label))
+        except Exception as e:
+            print(f"[OWCS] {label} 로드 실패: {e}")
+
+    # 중복 제거 (같은 dt+team 조합)
+    seen = set()
+    unique = []
+    for m in all_matches:
+        key = (m["dt"].isoformat(), m.get("team1"), m.get("team2"))
+        if key not in seen:
+            seen.add(key)
+            unique.append(m)
+
+    _cache = {"matches": sorted(unique, key=lambda x: x["dt"]), "updated_at": time.time()}
+    return _cache["matches"]
 
 
-def parse_dt(utc_str: str) -> datetime:
-    return datetime.fromisoformat(utc_str.replace("Z", "+00:00")).astimezone(KST)
-
-
-def get_upcoming(schedules: list, days: int = 7) -> list:
+def get_upcoming(matches: list, days: int = 7) -> list:
     now = datetime.now(KST)
     cutoff = now + timedelta(days=days)
-    result = []
-    for s in schedules:
-        if not s.get("matches"):
-            continue
-        dt = parse_dt(s["matchDateTime"])
-        if now.date() <= dt.date() <= cutoff.date():
-            result.append(s)
-    return sorted(result, key=lambda x: x["matchDateTime"])
+    return [m for m in matches if now <= m["dt"] <= cutoff]
 
 
-def get_notify_targets(schedules: list) -> list:
-    """시작 50~70분 전 경기 반환 (10분 폴링 기준 안전 범위)"""
+def get_notify_targets(matches: list) -> list:
+    """시작 50~70분 전 경기 반환"""
     now = datetime.now(KST)
     result = []
-    for s in schedules:
-        if not s.get("matches"):
-            continue
-        dt = parse_dt(s["matchDateTime"])
-        diff = (dt - now).total_seconds() / 60
+    for m in matches:
+        diff = (m["dt"] - now).total_seconds() / 60
         if 50 <= diff <= 70:
-            result.append(s)
+            result.append(m)
     return result
 
 
-def format_info(schedule: dict) -> dict:
-    dt = parse_dt(schedule["matchDateTime"])
-    stage = STAGE_KO.get(schedule.get("stageNameEn", ""), schedule.get("stageNameEn", ""))
-    phase = PHASE_KO.get(schedule.get("phaseNameAbbr", ""), schedule.get("phaseNameAbbr", ""))
-    matchups = "\n".join(
-        f"**{m['homeTeamNameAbbr']}** vs **{m['awayTeamNameAbbr']}**"
-        for m in schedule.get("matches", [])
-    )
+def match_id(m: dict) -> str:
+    return m["dt"].isoformat()
+
+
+def format_info(m: dict) -> dict:
     return {
-        "stage": f"{stage} — {phase}" if stage and phase else (stage or phase),
-        "time": dt.strftime("%Y-%m-%d %H:%M KST"),
-        "matchups": matchups or "경기 정보 없음",
-        "venue": schedule.get("matchVenue", ""),
-        "video_url": schedule.get("videoUrl", ""),
+        "label": m.get("label", "OWCS"),
+        "time": m["dt"].strftime("%Y-%m-%d %H:%M KST"),
+        "matchup": f"**{m.get('team1', '?')}** vs **{m.get('team2', '?')}**",
     }
