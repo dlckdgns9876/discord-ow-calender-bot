@@ -23,26 +23,36 @@ TOURNAMENT_PAGES = [
 ]
 
 _cache: dict = {"matches": [], "updated_at": 0}
-CACHE_TTL = 3600
+CACHE_TTL  = 3600
+_fetch_lock = asyncio.Lock()
 
 _logo_cache: dict[str, str | None] = {}
 
 
 async def _get_json(session: aiohttp.ClientSession, url: str, params: dict) -> dict:
-    """gzip 압축 응답을 수동으로 해제하여 JSON 반환"""
-    async with session.get(url, params=params, headers=HEADERS,
-                           timeout=aiohttp.ClientTimeout(total=15)) as resp:
-        if resp.status != 200:
-            print(f"[OWCS] HTTP {resp.status}: {url}")
-            return {}
-        raw = await resp.read()
-        try:
-            if resp.headers.get("Content-Encoding") == "gzip":
-                raw = gzip.decompress(raw)
-            return json.loads(raw.decode("utf-8"))
-        except Exception as e:
-            print(f"[OWCS] 파싱 실패: {e} (len={len(raw)})")
-            return {}
+    """gzip 압축 응답을 수동으로 해제하여 JSON 반환 (429 시 30초 대기 후 재시도)"""
+    for attempt in range(2):
+        async with session.get(url, params=params, headers=HEADERS,
+                               timeout=aiohttp.ClientTimeout(total=15)) as resp:
+            if resp.status == 429:
+                if attempt == 0:
+                    print(f"[OWCS] 429 Rate Limited — 30초 대기 후 재시도")
+                    await asyncio.sleep(30)
+                    continue
+                print(f"[OWCS] 429 재시도도 실패")
+                return {}
+            if resp.status != 200:
+                print(f"[OWCS] HTTP {resp.status}: {url}")
+                return {}
+            raw = await resp.read()
+            try:
+                if resp.headers.get("Content-Encoding") == "gzip":
+                    raw = gzip.decompress(raw)
+                return json.loads(raw.decode("utf-8"))
+            except Exception as e:
+                print(f"[OWCS] 파싱 실패: {e} (len={len(raw)})")
+                return {}
+    return {}
 
 
 async def _fetch_wikitext(page: str) -> str:
@@ -122,33 +132,36 @@ async def fetch_schedules() -> list:
     if time.time() - _cache["updated_at"] < CACHE_TTL:
         return _cache["matches"]
 
-    all_matches = []
-    for i, (label, page) in enumerate(TOURNAMENT_PAGES):
-        if i > 0:
-            await asyncio.sleep(2)  # Liquipedia 이용약관: 요청 간 2초 간격
-        try:
-            wikitext = await _fetch_wikitext(page)
-            if wikitext:
-                all_matches.extend(_parse_matches(wikitext, label))
-        except Exception as e:
-            print(f"[OWCS] {label} 로드 실패: {e}")
+    async with _fetch_lock:
+        if time.time() - _cache["updated_at"] < CACHE_TTL:
+            return _cache["matches"]
 
-    # 빈 결과면 캐시 갱신하지 않음 (이전 캐시 유지)
-    if not all_matches:
-        print("[OWCS] 데이터 없음 — 기존 캐시 유지")
-        _cache["updated_at"] = time.time() - CACHE_TTL + 300  # 5분 후 재시도
+        all_matches = []
+        for i, (label, page) in enumerate(TOURNAMENT_PAGES):
+            if i > 0:
+                await asyncio.sleep(5)
+            try:
+                wikitext = await _fetch_wikitext(page)
+                if wikitext:
+                    all_matches.extend(_parse_matches(wikitext, label))
+            except Exception as e:
+                print(f"[OWCS] {label} 로드 실패: {e}")
+
+        if not all_matches:
+            print("[OWCS] 데이터 없음 — 기존 캐시 유지")
+            _cache["updated_at"] = time.time() - CACHE_TTL + 300
+            return _cache["matches"]
+
+        seen = set()
+        unique = []
+        for m in all_matches:
+            key = (m["dt"].isoformat(), m.get("team1"), m.get("team2"))
+            if key not in seen:
+                seen.add(key)
+                unique.append(m)
+
+        _cache = {"matches": sorted(unique, key=lambda x: x["dt"]), "updated_at": time.time()}
         return _cache["matches"]
-
-    seen = set()
-    unique = []
-    for m in all_matches:
-        key = (m["dt"].isoformat(), m.get("team1"), m.get("team2"))
-        if key not in seen:
-            seen.add(key)
-            unique.append(m)
-
-    _cache = {"matches": sorted(unique, key=lambda x: x["dt"]), "updated_at": time.time()}
-    return _cache["matches"]
 
 
 def is_ongoing(m: dict) -> bool:
