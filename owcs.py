@@ -1,5 +1,7 @@
 import re
 import time
+import gzip
+import json
 import asyncio
 import aiohttp
 from datetime import datetime, timezone, timedelta
@@ -26,15 +28,28 @@ CACHE_TTL = 3600
 _logo_cache: dict[str, str | None] = {}
 
 
+async def _get_json(session: aiohttp.ClientSession, url: str, params: dict) -> dict:
+    """gzip 압축 응답을 수동으로 해제하여 JSON 반환"""
+    async with session.get(url, params=params, headers=HEADERS,
+                           timeout=aiohttp.ClientTimeout(total=15)) as resp:
+        if resp.status != 200:
+            print(f"[OWCS] HTTP {resp.status}: {url}")
+            return {}
+        raw = await resp.read()
+        try:
+            if resp.headers.get("Content-Encoding") == "gzip":
+                raw = gzip.decompress(raw)
+            return json.loads(raw.decode("utf-8"))
+        except Exception as e:
+            print(f"[OWCS] 파싱 실패: {e} (len={len(raw)})")
+            return {}
+
+
 async def _fetch_wikitext(page: str) -> str:
     params = {"action": "parse", "page": page, "prop": "wikitext", "format": "json"}
     async with aiohttp.ClientSession() as session:
-        async with session.get(
-            LIQUIPEDIA_API, params=params, headers=HEADERS,
-            timeout=aiohttp.ClientTimeout(total=15),
-        ) as resp:
-            data = await resp.json(content_type=None)
-            return data.get("parse", {}).get("wikitext", {}).get("*", "")
+        data = await _get_json(session, LIQUIPEDIA_API, params)
+        return data.get("parse", {}).get("wikitext", {}).get("*", "")
 
 
 async def fetch_team_logo(team_name: str) -> str | None:

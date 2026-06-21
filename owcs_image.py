@@ -1,6 +1,8 @@
 import io
 import os
 import re
+import gzip
+import json
 import aiohttp
 from datetime import datetime, timezone, timedelta
 from PIL import Image, ImageDraw, ImageFont
@@ -51,7 +53,10 @@ async def _fetch_team_logo_url(team_name: str) -> str | None:
             params = {"action": "parse", "page": team_name, "prop": "wikitext", "format": "json"}
             async with session.get(LIQUIPEDIA_API, params=params, headers=HEADERS,
                                    timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                data = await resp.json(content_type=None)
+                raw = await resp.read()
+                if resp.headers.get("Content-Encoding") == "gzip":
+                    raw = gzip.decompress(raw)
+                data = json.loads(raw.decode("utf-8")) if raw else {}
             wikitext = data.get("parse", {}).get("wikitext", {}).get("*", "")
 
             filename = None
@@ -77,7 +82,10 @@ async def _fetch_team_logo_url(team_name: str) -> str | None:
             }
             async with session.get(LIQUIPEDIA_API, params=params2, headers=HEADERS,
                                    timeout=aiohttp.ClientTimeout(total=10)) as resp2:
-                data2 = await resp2.json(content_type=None)
+                raw2 = await resp2.read()
+                if resp2.headers.get("Content-Encoding") == "gzip":
+                    raw2 = gzip.decompress(raw2)
+                data2 = json.loads(raw2.decode("utf-8")) if raw2 else {}
             pages = data2.get("query", {}).get("pages", {})
             url = None
             for page in pages.values():
