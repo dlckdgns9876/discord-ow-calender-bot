@@ -1,5 +1,6 @@
 import re
 import time
+import asyncio
 import aiohttp
 from datetime import datetime, timezone, timedelta
 
@@ -107,13 +108,21 @@ async def fetch_schedules() -> list:
         return _cache["matches"]
 
     all_matches = []
-    for label, page in TOURNAMENT_PAGES:
+    for i, (label, page) in enumerate(TOURNAMENT_PAGES):
+        if i > 0:
+            await asyncio.sleep(2)  # Liquipedia 이용약관: 요청 간 2초 간격
         try:
             wikitext = await _fetch_wikitext(page)
             if wikitext:
                 all_matches.extend(_parse_matches(wikitext, label))
         except Exception as e:
             print(f"[OWCS] {label} 로드 실패: {e}")
+
+    # 빈 결과면 캐시 갱신하지 않음 (이전 캐시 유지)
+    if not all_matches:
+        print("[OWCS] 데이터 없음 — 기존 캐시 유지")
+        _cache["updated_at"] = time.time() - CACHE_TTL + 300  # 5분 후 재시도
+        return _cache["matches"]
 
     seen = set()
     unique = []
