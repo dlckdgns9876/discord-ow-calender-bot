@@ -16,7 +16,8 @@ HEADERS = {
 TOURNAMENT_PAGES = [
     ("OWCS Korea ST1 정규시즌", "Overwatch_Champions_Series/2026/Asia/Stage_1/Korea/Regular_Season"),
     ("OWCS Korea ST1 플레이오프", "Overwatch_Champions_Series/2026/Asia/Stage_1/Korea"),
-    ("OWCS Korea ST2",           "Overwatch_Champions_Series/2026/Asia/Stage_2/Korea"),
+    ("OWCS Korea ST2 정규시즌", "Overwatch_Champions_Series/2026/Asia/Stage_2/Korea/Regular_Season"),
+    ("OWCS Korea ST2 플레이오프", "Overwatch_Champions_Series/2026/Asia/Stage_2/Korea"),
 ]
 
 # 캐시: 1시간마다 갱신 (Liquipedia 부하 최소화)
