@@ -26,7 +26,7 @@ TOURNAMENT_PAGES = [
 _BASE       = os.path.dirname(os.path.abspath(__file__))
 CACHE_FILE  = os.path.join(_BASE, "owcs_cache.json")
 _cache: dict = {"matches": [], "updated_at": 0}
-CACHE_TTL   = 3600
+CACHE_TTL   = 21600  # 6시간 — Liquipedia 과호출 방지
 _fetch_lock = asyncio.Lock()
 
 _logo_cache: dict[str, str | None] = {}
@@ -69,14 +69,16 @@ _load_cache_from_file()
 
 
 async def _get_json(session: aiohttp.ClientSession, url: str, params: dict) -> dict:
-    """gzip 압축 응답을 수동으로 해제하여 JSON 반환 (429 시 30초 대기 후 재시도)"""
+    """gzip 압축 응답을 수동으로 해제하여 JSON 반환 (429 시 Retry-After 준수 후 재시도)"""
     for attempt in range(2):
         async with session.get(url, params=params, headers=HEADERS,
                                timeout=aiohttp.ClientTimeout(total=15)) as resp:
             if resp.status == 429:
                 if attempt == 0:
-                    print(f"[OWCS] 429 Rate Limited — 30초 대기 후 재시도")
-                    await asyncio.sleep(30)
+                    retry_after = int(resp.headers.get("Retry-After", 60))
+                    wait = max(retry_after, 60)
+                    print(f"[OWCS] 429 Rate Limited — {wait}초 대기 후 재시도")
+                    await asyncio.sleep(wait)
                     continue
                 print(f"[OWCS] 429 재시도도 실패")
                 return {}
@@ -178,7 +180,7 @@ async def fetch_schedules() -> list:
         all_matches = []
         for i, (label, page) in enumerate(TOURNAMENT_PAGES):
             if i > 0:
-                await asyncio.sleep(5)
+                await asyncio.sleep(30)  # Liquipedia 권장: 요청 간 30초 이상
             try:
                 wikitext = await _fetch_wikitext(page)
                 if wikitext:
