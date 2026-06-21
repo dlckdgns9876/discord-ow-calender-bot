@@ -21,15 +21,14 @@ HEADER_H = 110
 ROW_H    = 120
 LOGO_SZ  = 64
 
-BG      = (10, 12, 20)
-CARD_ODD  = (16, 20, 33)
-CARD_EVEN = (20, 26, 44)
-LINE    = (38, 48, 72)
-WHITE   = (238, 242, 255)
-GRAY    = (120, 132, 160)
-ACCENT  = (255, 138, 0)
-RED     = (220, 50, 50)
-ON_AIR  = (220, 50, 50)
+BG        = (255, 255, 255)
+CARD_ODD  = (255, 255, 255)
+CARD_EVEN = (245, 247, 252)
+LINE      = (218, 222, 232)
+TEXT      = (20,  25,  45)
+GRAY      = (110, 118, 140)
+ACCENT    = (220, 90,  0)
+ON_AIR    = (200, 30,  30)
 
 _logo_cache: dict[str, str | None] = {}
 
@@ -154,7 +153,7 @@ async def draw_match_day(day_matches: list) -> io.BytesIO:
     label    = day_matches[0].get("label", "OWCS Korea")
     date_str = day_matches[0]["dt"].strftime("%Y.%m.%d (%a)")
     draw.text((PAD, 18), label,    font=f_label, fill=ACCENT)
-    draw.text((PAD, 46), date_str, font=f_date,  fill=WHITE)
+    draw.text((PAD, 46), date_str, font=f_date,  fill=TEXT)
     draw.line([(PAD, HEADER_H - 10), (IMG_W - PAD, HEADER_H - 10)], fill=LINE, width=1)
 
     CX = IMG_W // 2
@@ -172,22 +171,24 @@ async def draw_match_day(day_matches: list) -> io.BytesIO:
         team2 = m.get("team2", "?")
         dt    = m["dt"]
 
-        # 진행 중 여부
-        ongoing = dt <= now <= dt.replace(hour=dt.hour) + __import__("datetime").timedelta(hours=3)
-        ongoing = (dt - now).total_seconds() <= 0 <= (now - dt).total_seconds() / 3600 * 3 or \
-                  0 <= (now - dt).total_seconds() <= 3 * 3600
+        ongoing = 0 <= (now - dt).total_seconds() <= 3 * 3600
 
-        time_color = ON_AIR if ongoing else GRAY
-        time_label = f"🔴 ON AIR" if ongoing else dt.strftime("%H:%M KST")
-
-        # Match 번호 + 시간
+        # Match 번호
         draw.text((PAD, cy - 14), f"Match {i + 1}", font=f_meta, fill=GRAY)
-        draw.text((PAD, cy + 2),  time_label,       font=f_meta, fill=time_color)
+
+        # 시간 or ON AIR (이모지 대신 Pillow로 빨간 원 직접 그림)
+        if ongoing:
+            r = 5
+            dot_x, dot_y = PAD, cy + 6
+            draw.ellipse([dot_x, dot_y, dot_x + r * 2, dot_y + r * 2], fill=ON_AIR)
+            draw.text((dot_x + r * 2 + 4, cy + 2), "ON AIR", font=f_meta, fill=ON_AIR)
+        else:
+            draw.text((PAD, cy + 2), dt.strftime("%H:%M KST"), font=f_meta, fill=GRAY)
 
         # ── 팀1 (오른쪽 정렬, 중앙 왼쪽) ──
         t1w = int(draw.textlength(team1, font=f_team))
         t1x = CX - 80 - t1w
-        draw.text((t1x, cy - 14), team1, font=f_team, fill=WHITE)
+        draw.text((t1x, cy - 14), team1, font=f_team, fill=TEXT)
         _paste(img, logo_imgs.get(team1), t1x - LOGO_SZ - 8, cy - LOGO_SZ // 2)
 
         # ── vs ──
@@ -196,7 +197,7 @@ async def draw_match_day(day_matches: list) -> io.BytesIO:
 
         # ── 팀2 (왼쪽 정렬, 중앙 오른쪽) ──
         t2x = CX + 80
-        draw.text((t2x, cy - 14), team2, font=f_team, fill=WHITE)
+        draw.text((t2x, cy - 14), team2, font=f_team, fill=TEXT)
         t2w = int(draw.textlength(team2, font=f_team))
         _paste(img, logo_imgs.get(team2), t2x + t2w + 8, cy - LOGO_SZ // 2)
 
