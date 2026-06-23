@@ -310,7 +310,7 @@ async def draw_standings(standings: list, title: str = "STANDINGS") -> io.BytesI
 
     # 컬럼 헤더
     cols = {"TEAM": 130, "W": S_W - 180, "L": S_W - 120, "+/-": S_W - 55}
-    draw.line([(S_PAD, S_HEAD_H - 14), (S_W - S_PAD, S_HEAD_H - 14)], fill=S_LINE, width=1)
+    draw.line([(S_PAD, S_HEAD_H - 8), (S_W - S_PAD, S_HEAD_H - 8)], fill=S_LINE, width=1)
     draw.text((cols["TEAM"], S_HEAD_H - 34), "TEAM", font=f_head, fill=S_GRAY)
     for key in ("W", "L", "+/-"):
         kw = int(draw.textlength(key, font=f_head))
