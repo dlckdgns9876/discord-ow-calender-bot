@@ -36,6 +36,8 @@ async def on_ready():
 async def check_owcs():
     try:
         schedules = await owcs_module.fetch_schedules()
+
+        # ── 경기 1시간 전 알림 ───────────────────────────────
         targets = owcs_module.get_notify_targets(schedules)
         for match in targets:
             mid = owcs_module.match_id(match)
@@ -44,24 +46,46 @@ async def check_owcs():
             await db.mark_owcs_notified(mid)
 
             info = owcs_module.format_info(match)
-            logo = await owcs_module.fetch_team_logo(info["team1"])
-
             embed = discord.Embed(
                 title="🎮 OWCS 경기 1시간 전 알림!",
                 color=discord.Color.orange(),
             )
-            embed.add_field(name="대회", value=info["label"], inline=False)
-            embed.add_field(name="시작 시간", value=info["time"], inline=True)
-            embed.add_field(name="경기", value=info["matchup"], inline=False)
+            embed.add_field(name="대회",    value=info["label"],   inline=False)
+            embed.add_field(name="시작 시간", value=info["time"],   inline=True)
+            embed.add_field(name="경기",    value=info["matchup"], inline=False)
             embed.add_field(name="📺 공식 방송", value=f"[SOOP 바로가기]({owcs_module.SOOP_URL})", inline=False)
-            if logo:
-                embed.set_thumbnail(url=logo)
 
             channels = await db.get_all_owcs_channels()
             for guild_id, channel_id in channels:
                 ch = bot.get_channel(channel_id)
                 if ch:
                     await ch.send(embed=embed)
+
+        # ── 주차 종료 알림 ───────────────────────────────────
+        week_lasts = owcs_module.get_week_last_matches(schedules)
+        for last_match in week_lasts:
+            if not owcs_module.is_week_just_ended(last_match):
+                continue
+            wid = f"week_end_{owcs_module.match_id(last_match)}"
+            if await db.is_owcs_notified(wid):
+                continue
+            await db.mark_owcs_notified(wid)
+
+            # 순위표 이미지 생성
+            standings = await owcs_module.fetch_standings()
+            buf  = await owcs_image.draw_standings(standings)
+            file = discord.File(buf, filename="owcs_standings.png")
+
+            week_channels = await db.get_all_owcs_week_channels()
+            for guild_id, channel_id in week_channels:
+                ch = bot.get_channel(channel_id)
+                if ch:
+                    await ch.send(
+                        content="📊 **이번 주차 경기가 모두 종료됐습니다! 현재 순위입니다.**",
+                        file=file,
+                    )
+                    buf.seek(0)
+
     except Exception as e:
         print(f"[OWCS 알림 오류] {e}")
 
@@ -363,6 +387,15 @@ async def show_owcs_standings(interaction: discord.Interaction):
     buf  = await owcs_image.draw_standings(standings)
     file = discord.File(buf, filename="owcs_standings.png")
     await interaction.followup.send(file=file)
+
+
+@bot.tree.command(name="owcs주차알림설정", description="주차 마지막 경기 종료 후 순위 알림을 받을 채널을 설정합니다")
+@discord.app_commands.describe(채널="알림을 받을 채널")
+async def set_owcs_week_channel(interaction: discord.Interaction, 채널: discord.TextChannel):
+    await db.set_owcs_week_channel(interaction.guild_id, 채널.id)
+    await interaction.response.send_message(
+        f"{채널.mention} 채널에 주차 종료 시 순위표 알림을 보냅니다.", ephemeral=True
+    )
 
 
 bot.run(TOKEN)

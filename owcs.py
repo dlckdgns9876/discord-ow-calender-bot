@@ -221,6 +221,31 @@ async def fetch_standings() -> list:
     return standings
 
 
+def get_week_last_matches(matches: list) -> list:
+    """각 주차의 마지막 경기 목록 반환 (주차 = 5일 이상 간격으로 구분)"""
+    if not matches:
+        return []
+    sorted_m = sorted(matches, key=lambda x: x["dt"])
+    weeks, current = [], [sorted_m[0]]
+    for m in sorted_m[1:]:
+        if (m["dt"] - current[-1]["dt"]).days >= 5:
+            weeks.append(current)
+            current = [m]
+        else:
+            current.append(m)
+    if current:
+        weeks.append(current)
+    return [max(week, key=lambda x: x["dt"]) for week in weeks]
+
+
+def is_week_just_ended(last_match: dict, tolerance_min: int = 15) -> bool:
+    """주차 마지막 경기가 방금 끝났는지 (종료 후 tolerance_min 이내)"""
+    now    = datetime.now(KST)
+    end_dt = last_match["dt"] + timedelta(hours=3)
+    diff   = (now - end_dt).total_seconds() / 60
+    return 0 <= diff <= tolerance_min
+
+
 def is_ongoing(m: dict) -> bool:
     now = datetime.now(KST)
     return m["dt"] <= now <= m["dt"] + timedelta(hours=3)

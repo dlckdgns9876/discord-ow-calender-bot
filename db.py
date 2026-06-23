@@ -37,6 +37,12 @@ async def init_db():
                 match_dt TEXT PRIMARY KEY
             )
         """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS owcs_week_channels (
+                guild_id   INTEGER PRIMARY KEY,
+                channel_id INTEGER NOT NULL
+            )
+        """)
         await db.commit()
 
 
@@ -75,6 +81,23 @@ async def mark_owcs_notified(match_dt: str):
             "DELETE FROM owcs_notified WHERE match_dt < datetime('now', '-30 days')"
         )
         await db.commit()
+
+
+# ── OWCS 주차 종료 알림 채널 ──────────────────────────────
+
+async def set_owcs_week_channel(guild_id: int, channel_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR REPLACE INTO owcs_week_channels (guild_id, channel_id) VALUES (?, ?)",
+            (guild_id, channel_id),
+        )
+        await db.commit()
+
+
+async def get_all_owcs_week_channels() -> list:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT guild_id, channel_id FROM owcs_week_channels") as cur:
+            return await cur.fetchall()
 
 
 async def add_schedule(
