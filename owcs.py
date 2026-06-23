@@ -208,7 +208,10 @@ async def fetch_standings() -> list:
     for i, (name, stats) in enumerate(sorted_teams):
         if i > 0:
             prev = sorted_teams[i - 1][1]
-            if stats["W"] != prev["W"] or stats["L"] != prev["L"]:
+            # W, L, diff 모두 같아야 동일 순위 (득실까지 반영)
+            if (stats["W"] != prev["W"]
+                    or stats["L"] != prev["L"]
+                    or stats["diff"] != prev["diff"]):
                 rank = i + 1
         standings.append({
             "rank": rank,
