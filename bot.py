@@ -347,4 +347,22 @@ async def show_owcs_schedule(interaction: discord.Interaction, 일수: int = 7):
     await interaction.followup.send(content=content, files=files)
 
 
+@bot.tree.command(name="owcs순위", description="OWCS Korea 현재 순위표를 보여줍니다")
+async def show_owcs_standings(interaction: discord.Interaction):
+    await interaction.response.defer()
+    try:
+        standings = await owcs_module.fetch_standings()
+    except Exception as e:
+        await interaction.followup.send(f"순위를 불러오지 못했습니다: {e}", ephemeral=True)
+        return
+
+    if not standings:
+        await interaction.followup.send("순위 데이터가 없습니다.", ephemeral=True)
+        return
+
+    buf  = await owcs_image.draw_standings(standings)
+    file = discord.File(buf, filename="owcs_standings.png")
+    await interaction.followup.send(file=file)
+
+
 bot.run(TOKEN)

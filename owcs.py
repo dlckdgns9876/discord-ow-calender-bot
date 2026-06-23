@@ -149,6 +149,78 @@ async def fetch_schedules() -> list:
         return _cache["matches"]
 
 
+STANDINGS_TOURNAMENT = "Overwatch Champions Series 2026 - Korea Stage 2 - Regular Season"
+
+
+async def fetch_standings() -> list:
+    """완료된 경기 결과로 팀 순위 계산 → [{rank, team, W, L, diff, logo}]"""
+    params = {
+        "wiki":       "overwatch",
+        "conditions": f"[[tournament::{STANDINGS_TOURNAMENT}]] AND [[finished::1]]",
+        "limit":      "100",
+    }
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                API_BASE, params=params, headers=_headers(),
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as resp:
+                if resp.status != 200:
+                    return []
+                data = await resp.json()
+    except Exception as e:
+        print(f"[OWCS 순위] 로드 실패: {e}")
+        return []
+
+    table: dict[str, dict] = {}
+    for raw in data.get("result", []):
+        opps = raw.get("match2opponents", [])
+        if len(opps) < 2:
+            continue
+        t1, t2 = opps[0], opps[1]
+        n1, n2 = t1.get("name", ""), t2.get("name", "")
+        s1 = int(t1.get("score") or 0)
+        s2 = int(t2.get("score") or 0)
+        logo1 = t1.get("teamtemplate", {}).get("imageurl", "")
+        logo2 = t2.get("teamtemplate", {}).get("imageurl", "")
+
+        for name, score_for, score_against, logo in [
+            (n1, s1, s2, logo1), (n2, s2, s1, logo2)
+        ]:
+            if not name:
+                continue
+            if name not in table:
+                table[name] = {"W": 0, "L": 0, "diff": 0, "logo": logo}
+            entry = table[name]
+            if score_for > score_against:
+                entry["W"] += 1
+            else:
+                entry["L"] += 1
+            entry["diff"] += score_for - score_against
+
+    sorted_teams = sorted(
+        table.items(),
+        key=lambda x: (-x[1]["W"], x[1]["L"], -x[1]["diff"])
+    )
+
+    standings = []
+    rank = 1
+    for i, (name, stats) in enumerate(sorted_teams):
+        if i > 0:
+            prev = sorted_teams[i - 1][1]
+            if stats["W"] != prev["W"] or stats["L"] != prev["L"]:
+                rank = i + 1
+        standings.append({
+            "rank": rank,
+            "team": name,
+            "W":    stats["W"],
+            "L":    stats["L"],
+            "diff": stats["diff"],
+            "logo": stats["logo"],
+        })
+    return standings
+
+
 def is_ongoing(m: dict) -> bool:
     now = datetime.now(KST)
     return m["dt"] <= now <= m["dt"] + timedelta(hours=3)

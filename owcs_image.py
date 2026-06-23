@@ -242,3 +242,108 @@ async def draw_match_day(day_matches: list) -> io.BytesIO:
     img.save(buf, format="PNG")
     buf.seek(0)
     return buf
+
+
+# ── 순위표 이미지 ────────────────────────────────────────────
+
+S_W       = 720
+S_PAD     = 36
+S_LOGO    = 44
+S_ROW_H   = 68
+S_HEAD_H  = 130
+
+S_BG      = (12,  12,  18)
+S_HDR     = (20,  20,  30)
+S_ROW_ODD = (18,  18,  28)
+S_ROW_EVN = (24,  24,  36)
+S_LINE    = (40,  40,  60)
+S_WHITE   = (240, 242, 248)
+S_GRAY    = (140, 145, 165)
+S_RED     = (210, 40,  40)
+S_GOLD    = (255, 200, 60)
+
+
+def _load_logo_local(team: str) -> Image.Image | None:
+    mapping_path = os.path.join(_BASE, "logos", "mapping.json")
+    try:
+        with open(mapping_path, encoding="utf-8") as f:
+            mapping = json.load(f)
+        fname = mapping.get(team)
+        if fname:
+            path = os.path.join(_BASE, "logos", fname)
+            if os.path.exists(path):
+                img = Image.open(path).convert("RGBA")
+                img.thumbnail((S_LOGO, S_LOGO), Image.LANCZOS)
+                canvas = Image.new("RGBA", (S_LOGO, S_LOGO), (0, 0, 0, 0))
+                ox = (S_LOGO - img.width) // 2
+                oy = (S_LOGO - img.height) // 2
+                canvas.paste(img, (ox, oy))
+                return canvas
+    except Exception:
+        pass
+    return None
+
+
+async def draw_standings(standings: list, title: str = "STANDINGS") -> io.BytesIO:
+    n      = len(standings)
+    img_h  = S_HEAD_H + n * S_ROW_H + S_PAD
+
+    img  = Image.new("RGB", (S_W, img_h), S_BG)
+    draw = ImageDraw.Draw(img)
+
+    f_title = _font(FONT_BOLD,    38)
+    f_sub   = _font(FONT_REGULAR, 15)
+    f_rank  = _font(FONT_BOLD,    22)
+    f_team  = _font(FONT_BOLD,    20)
+    f_stat  = _font(FONT_BOLD,    20)
+    f_head  = _font(FONT_BOLD,    14)
+
+    # ── 헤더 ─────────────────────────────────────────────────
+    draw.rectangle([0, 0, S_W, S_HEAD_H], fill=S_HDR)
+
+    tw = int(draw.textlength(title, font=f_title))
+    draw.text(((S_W - tw) // 2, 22), title, font=f_title, fill=S_WHITE)
+
+    sub = "OWCS Korea Stage 2 - Regular Season"
+    sw = int(draw.textlength(sub, font=f_sub))
+    draw.text(((S_W - sw) // 2, 78), sub, font=f_sub, fill=S_GRAY)
+
+    # 컬럼 헤더
+    cols = {"TEAM": 130, "W": S_W - 180, "L": S_W - 120, "+/-": S_W - 55}
+    draw.line([(S_PAD, S_HEAD_H - 14), (S_W - S_PAD, S_HEAD_H - 14)], fill=S_LINE, width=1)
+    draw.text((cols["TEAM"], S_HEAD_H - 26), "TEAM", font=f_head, fill=S_GRAY)
+    for key in ("W", "L", "+/-"):
+        kw = int(draw.textlength(key, font=f_head))
+        draw.text((cols[key] - kw // 2, S_HEAD_H - 26), key, font=f_head, fill=S_GRAY)
+
+    # ── 팀 행 ────────────────────────────────────────────────
+    for i, entry in enumerate(standings):
+        y      = S_HEAD_H + i * S_ROW_H
+        cy     = y + S_ROW_H // 2
+        row_bg = S_ROW_ODD if i % 2 == 0 else S_ROW_EVN
+        draw.rectangle([0, y, S_W, y + S_ROW_H - 1], fill=row_bg)
+        draw.line([(0, y + S_ROW_H - 1), (S_W, y + S_ROW_H - 1)], fill=S_LINE, width=1)
+
+        rank = entry["rank"]
+        rank_color = S_GOLD if rank == 1 else S_RED if rank <= 3 else S_WHITE
+        rw = int(draw.textlength(str(rank), font=f_rank))
+        draw.text((S_PAD + (30 - rw) // 2, cy - 13), str(rank), font=f_rank, fill=rank_color)
+
+        logo = _load_logo_local(entry["team"])
+        if logo:
+            _paste(img, logo, 72, cy - S_LOGO // 2)
+
+        draw.text((cols["TEAM"], cy - 12), entry["team"], font=f_team, fill=S_WHITE)
+
+        for key, val in [("W", entry["W"]), ("L", entry["L"]), ("+/-", entry["diff"])]:
+            text  = f"+{val}" if key == "+/-" and val > 0 else str(val)
+            color = S_RED if key == "L" or (key == "+/-" and val < 0) else S_WHITE
+            if key == "W":
+                color = (100, 220, 120)
+            vw = int(draw.textlength(text, font=f_stat))
+            draw.text((cols[key] - vw // 2, cy - 12), text, font=f_stat, fill=color)
+
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+    return buf
