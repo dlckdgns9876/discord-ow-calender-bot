@@ -32,20 +32,6 @@ async def on_ready():
         check_owcs.start()
 
 
-@check_owcs.before_loop
-async def before_check_owcs():
-    """봇 준비 완료 대기 + 캐시가 신선하면 첫 실행 60초 지연"""
-    await bot.wait_until_ready()
-    import time as _time
-    from owcs import _cache, CACHE_TTL
-    remaining = CACHE_TTL - (_time.time() - _cache["updated_at"])
-    if remaining > 0:
-        print(f"[OWCS] 캐시 유효 — {int(remaining)}초 후 첫 API 호출 예정")
-    else:
-        import asyncio as _asyncio
-        await _asyncio.sleep(60)  # 캐시 만료 시 60초 후 첫 시도
-
-
 @tasks.loop(minutes=10)
 async def check_owcs():
     try:
@@ -104,6 +90,18 @@ async def check_owcs():
 
     except Exception as e:
         print(f"[OWCS 알림 오류] {e}")
+
+
+@check_owcs.before_loop
+async def before_check_owcs():
+    await bot.wait_until_ready()
+    import time as _time
+    from owcs import _cache, CACHE_TTL
+    remaining = CACHE_TTL - (_time.time() - _cache["updated_at"])
+    if remaining > 0:
+        print(f"[OWCS] 캐시 유효 — {int(remaining)}초 후 첫 API 호출 예정")
+    else:
+        await __import__("asyncio").sleep(60)
 
 
 @bot.tree.command(name="ping", description="봇 응답 확인")
