@@ -93,7 +93,7 @@ def _parse_match(raw: dict) -> dict | None:
 
 async def _fetch_tournament(session: aiohttp.ClientSession, tournament: str) -> list:
     params = {"wiki": "overwatch", "conditions": f"[[tournament::{tournament}]]",
-              "order": "date ASC", "limit": "100"}
+              "limit": "100"}
     for attempt in range(2):
         try:
             async with session.get(API_BASE, params=params, headers=_headers(),
