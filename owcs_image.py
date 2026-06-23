@@ -138,15 +138,44 @@ async def draw_match_day(day_matches: list) -> io.BytesIO:
     n = len(day_matches)
     img_h = HEADER_H + n * ROW_H + PAD // 2
 
-    # 팀 로고: v3 API에서 직접 제공된 URL 사용 (별도 API 호출 불필요)
-    logo_url_map: dict[str, str] = {}
+    # 팀 로고: 로컬 파일 우선, 없으면 URL 다운로드
+    logo_mapping_path = os.path.join(_BASE, "logos", "mapping.json")
+    try:
+        with open(logo_mapping_path, encoding="utf-8") as f:
+            logo_mapping = json.load(f)
+    except Exception:
+        logo_mapping = {}
+
+    logo_imgs: dict[str, Image.Image | None] = {}
+    all_teams = {m.get("team1") for m in day_matches} | {m.get("team2") for m in day_matches}
+    all_teams.discard(None)
+    all_teams.discard("")
+
+    # URL 맵 구성 (fallback용)
+    url_map: dict[str, str] = {}
     for m in day_matches:
         if m.get("team1") and m.get("logo1"):
-            logo_url_map[m["team1"]] = m["logo1"]
+            url_map[m["team1"]] = m["logo1"]
         if m.get("team2") and m.get("logo2"):
-            logo_url_map[m["team2"]] = m["logo2"]
+            url_map[m["team2"]] = m["logo2"]
 
-    logo_imgs = {t: await _download_logo(url) for t, url in logo_url_map.items()}
+    for team in all_teams:
+        fname = logo_mapping.get(team)
+        local = os.path.join(_BASE, "logos", fname) if fname else None
+        if local and os.path.exists(local):
+            try:
+                img_logo = Image.open(local).convert("RGBA")
+                img_logo.thumbnail((LOGO_SZ, LOGO_SZ), Image.LANCZOS)
+                canvas = Image.new("RGBA", (LOGO_SZ, LOGO_SZ), (0, 0, 0, 0))
+                ox = (LOGO_SZ - img_logo.width) // 2
+                oy = (LOGO_SZ - img_logo.height) // 2
+                canvas.paste(img_logo, (ox, oy))
+                logo_imgs[team] = canvas
+                continue
+            except Exception:
+                pass
+        # 로컬 없으면 URL 다운로드
+        logo_imgs[team] = await _download_logo(url_map.get(team, ""))
 
     img  = Image.new("RGB", (IMG_W, img_h), BG)
     draw = ImageDraw.Draw(img)
