@@ -21,11 +21,6 @@ async def init_db():
                 created_at  TEXT    DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        for col in ("start_time TEXT", "end_time TEXT", "user_id INTEGER", "user_name TEXT"):
-            try:
-                await db.execute(f"ALTER TABLE schedules ADD COLUMN {col}")
-            except Exception:
-                pass
         await db.execute("""
             CREATE TABLE IF NOT EXISTS owcs_channels (
                 guild_id   INTEGER PRIMARY KEY,

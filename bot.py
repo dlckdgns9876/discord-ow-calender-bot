@@ -1,6 +1,8 @@
+import asyncio
 import os
 import re
 import sys
+import time
 from datetime import datetime, timedelta
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -99,13 +101,11 @@ async def check_owcs():
 @check_owcs.before_loop
 async def before_check_owcs():
     await bot.wait_until_ready()
-    import time as _time
-    from owcs import _cache, CACHE_TTL
-    remaining = CACHE_TTL - (_time.time() - _cache["updated_at"])
+    remaining = owcs_module.CACHE_TTL - (time.time() - owcs_module._cache["updated_at"])
     if remaining > 0:
         print(f"[OWCS] 캐시 유효 — {int(remaining)}초 후 첫 API 호출 예정")
     else:
-        await __import__("asyncio").sleep(60)
+        await asyncio.sleep(60)
 
 
 @bot.tree.command(name="ping", description="봇 응답 확인")

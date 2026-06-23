@@ -54,7 +54,7 @@ def _save_cache():
         data = {
             "updated_at": _cache["updated_at"],
             "matches": [
-                {**{k: v for k, v in m.items() if k != "dt"}, "dt": m["dt"].isoformat()}
+                {**m, "dt": m["dt"].isoformat()}
                 for m in _cache["matches"]
             ],
         }
@@ -138,12 +138,7 @@ async def fetch_schedules() -> list:
             print("[OWCS] 데이터 없음 — 기존 캐시 유지")
             _cache["updated_at"] = time.time() - CACHE_TTL + 300
             return _cache["matches"]
-        seen, unique = set(), []
-        for m in all_matches:
-            key = (m["dt"].isoformat(), m["team1"], m["team2"])
-            if key not in seen:
-                seen.add(key)
-                unique.append(m)
+        unique = list({(m["dt"].isoformat(), m["team1"], m["team2"]): m for m in all_matches}.values())
         _cache = {"matches": sorted(unique, key=lambda x: x["dt"]), "updated_at": time.time()}
         _save_cache()
         return _cache["matches"]
@@ -255,17 +250,11 @@ def match_id(m: dict) -> str:
 
 
 def format_info(m: dict) -> dict:
-    ongoing = is_ongoing(m)
-    prefix  = "🔴 **ON AIR** " if ongoing else ""
+    prefix = "🔴 **ON AIR** " if is_ongoing(m) else ""
     return {
         "label":   m.get("label", "OWCS"),
         "time":    m["dt"].strftime("%Y-%m-%d %H:%M KST"),
         "matchup": f"{prefix}**{m.get('team1','?')}** vs **{m.get('team2','?')}**",
-        "ongoing": ongoing,
-        "team1":   m.get("team1", ""),
-        "team2":   m.get("team2", ""),
-        "logo1":   m.get("logo1", ""),
-        "logo2":   m.get("logo2", ""),
     }
 
 
