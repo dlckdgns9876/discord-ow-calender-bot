@@ -1,6 +1,10 @@
 import os
 import re
+import sys
 from datetime import datetime, timedelta
+
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 import discord
 from discord.ext import commands, tasks
