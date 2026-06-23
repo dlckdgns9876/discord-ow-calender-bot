@@ -72,7 +72,7 @@ async def check_owcs():
             await db.mark_owcs_notified(wid)
 
             # 순위표 이미지 생성
-            standings = await owcs_module.fetch_standings()
+            standings = owcs_module.fetch_standings()
             buf  = await owcs_image.draw_standings(
                 standings, title=f"WEEK {week_no} STANDINGS"
             )
@@ -389,7 +389,7 @@ async def show_owcs_schedule(interaction: discord.Interaction, 일수: int = 7):
 async def show_owcs_standings(interaction: discord.Interaction):
     await interaction.response.defer()
     try:
-        standings = await owcs_module.fetch_standings()
+        standings = owcs_module.fetch_standings()
     except Exception as e:
         await interaction.followup.send(f"순위를 불러오지 못했습니다: {e}", ephemeral=True)
         return

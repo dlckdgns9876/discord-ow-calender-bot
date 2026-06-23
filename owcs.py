@@ -83,6 +83,8 @@ def _parse_match(raw: dict) -> dict | None:
         "label":    raw.get("tournament", "OWCS Korea"),
         "team1":    t1.get("name", "?"),
         "team2":    t2.get("name", "?"),
+        "score1":   int(t1.get("score") or 0),
+        "score2":   int(t2.get("score") or 0),
         "logo1":    t1.get("teamtemplate", {}).get("imageurl", ""),
         "logo2":    t2.get("teamtemplate", {}).get("imageurl", ""),
         "finished": bool(raw.get("finished")),
@@ -150,40 +152,19 @@ async def fetch_schedules() -> list:
 STANDINGS_TOURNAMENT = "Overwatch Champions Series 2026 - Korea Stage 2 - Regular Season"
 
 
-async def fetch_standings() -> list:
-    """완료된 경기 결과로 팀 순위 계산 → [{rank, team, W, L, diff, logo}]"""
-    params = {
-        "wiki":       "overwatch",
-        "conditions": f"[[tournament::{STANDINGS_TOURNAMENT}]] AND [[finished::1]]",
-        "limit":      "100",
-    }
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
-                API_BASE, params=params, headers=_headers(),
-                timeout=aiohttp.ClientTimeout(total=15),
-            ) as resp:
-                if resp.status != 200:
-                    return []
-                data = await resp.json()
-    except Exception as e:
-        print(f"[OWCS 순위] 로드 실패: {e}")
-        return []
+def fetch_standings() -> list:
+    """캐시된 경기 데이터로 순위 계산 (API 호출 없음)"""
+    matches = _cache.get("matches", [])
+    target_matches = [
+        m for m in matches
+        if m.get("label") == STANDINGS_TOURNAMENT and m.get("finished")
+    ]
 
     table: dict[str, dict] = {}
-    for raw in data.get("result", []):
-        opps = raw.get("match2opponents", [])
-        if len(opps) < 2:
-            continue
-        t1, t2 = opps[0], opps[1]
-        n1, n2 = t1.get("name", ""), t2.get("name", "")
-        s1 = int(t1.get("score") or 0)
-        s2 = int(t2.get("score") or 0)
-        logo1 = t1.get("teamtemplate", {}).get("imageurl", "")
-        logo2 = t2.get("teamtemplate", {}).get("imageurl", "")
-
+    for m in target_matches:
         for name, score_for, score_against, logo in [
-            (n1, s1, s2, logo1), (n2, s2, s1, logo2)
+            (m.get("team1",""), m.get("score1",0), m.get("score2",0), m.get("logo1","")),
+            (m.get("team2",""), m.get("score2",0), m.get("score1",0), m.get("logo2","")),
         ]:
             if not name:
                 continue
