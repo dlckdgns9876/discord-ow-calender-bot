@@ -28,6 +28,8 @@ _logo_cache: dict = {}
 
 def _headers() -> dict:
     key = os.getenv("LIQUIPEDIA_API_KEY", "")
+    if not key:
+        print("[OWCS] 경고: LIQUIPEDIA_API_KEY 환경변수가 설정되지 않았습니다!")
     return {"Authorization": f"Apikey {key}", "Accept": "application/json"}
 
 
@@ -104,6 +106,9 @@ async def _fetch_tournament(session: aiohttp.ClientSession, tournament: str) -> 
                     print(f"[OWCS] HTTP {resp.status}: {tournament}")
                     return []
                 data = await resp.json()
+                if data.get("error"):
+                    print(f"[OWCS] API 오류: {data['error']}")
+                    return []
                 matches = [m for raw in data.get("result", []) if (m := _parse_match(raw))]
                 print(f"[OWCS] {tournament}: {len(matches)}경기")
                 return matches
