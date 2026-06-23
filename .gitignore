@@ -5,4 +5,4 @@ __pycache__/
 *.db
 .venv/
 venv/
-owcs_cache.json
+# owcs_cache.json  # 임시 서버 배포용으로 추적 허용
