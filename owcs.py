@@ -157,9 +157,12 @@ def fetch_standings() -> list:
 
     table: dict[str, dict] = {}
     for m in target_matches:
+        s1, s2 = m.get("score1"), m.get("score2")
+        if s1 is None or s2 is None or s1 < 0 or s2 < 0:
+            continue
         for name, score_for, score_against, logo in [
-            (m.get("team1",""), m.get("score1",0), m.get("score2",0), m.get("logo1","")),
-            (m.get("team2",""), m.get("score2",0), m.get("score1",0), m.get("logo2","")),
+            (m.get("team1",""), s1, s2, m.get("logo1","")),
+            (m.get("team2",""), s2, s1, m.get("logo2","")),
         ]:
             if not name:
                 continue
