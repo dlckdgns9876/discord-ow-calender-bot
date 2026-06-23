@@ -138,15 +138,15 @@ async def draw_match_day(day_matches: list) -> io.BytesIO:
     n = len(day_matches)
     img_h = HEADER_H + n * ROW_H + PAD // 2
 
-    # 팀 로고 수집
-    all_teams = set()
+    # 팀 로고: v3 API에서 직접 제공된 URL 사용 (별도 API 호출 불필요)
+    logo_url_map: dict[str, str] = {}
     for m in day_matches:
-        all_teams.add(m.get("team1", ""))
-        all_teams.add(m.get("team2", ""))
-    all_teams.discard("")
+        if m.get("team1") and m.get("logo1"):
+            logo_url_map[m["team1"]] = m["logo1"]
+        if m.get("team2") and m.get("logo2"):
+            logo_url_map[m["team2"]] = m["logo2"]
 
-    logo_urls  = {t: await _fetch_team_logo_url(t) for t in all_teams}
-    logo_imgs  = {t: await _download_logo(url) for t, url in logo_urls.items()}
+    logo_imgs = {t: await _download_logo(url) for t, url in logo_url_map.items()}
 
     img  = Image.new("RGB", (IMG_W, img_h), BG)
     draw = ImageDraw.Draw(img)

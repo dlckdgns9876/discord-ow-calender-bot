@@ -85,8 +85,8 @@ def _parse_match(raw: dict) -> dict | None:
         "label":    raw.get("tournament", "OWCS Korea"),
         "team1":    t1.get("name", "?"),
         "team2":    t2.get("name", "?"),
-        "logo1":    t1.get("teamtemplate", {}).get("imagedarkurl", ""),
-        "logo2":    t2.get("teamtemplate", {}).get("imagedarkurl", ""),
+        "logo1":    t1.get("teamtemplate", {}).get("imageurl", ""),
+        "logo2":    t2.get("teamtemplate", {}).get("imageurl", ""),
         "finished": bool(raw.get("finished")),
     }
 
