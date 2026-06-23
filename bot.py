@@ -99,7 +99,7 @@ async def check_owcs():
                     buf.seek(0)
 
     except Exception as e:
-        print(f"[OWCS 알림 오류] {e}")
+        print(f"OWCS 알림 오류: {e}")
 
 
 @check_owcs.before_loop
@@ -107,7 +107,7 @@ async def before_check_owcs():
     await bot.wait_until_ready()
     remaining = owcs_module.CACHE_TTL - (time.time() - owcs_module._cache["updated_at"])
     if remaining > 0:
-        print(f"[OWCS] 캐시 유효 — {int(remaining)}초 후 첫 API 호출 예정")
+        print(f"OWCS: 캐시 유효 — {int(remaining)}초 후 첫 API 호출 예정")
     else:
         await asyncio.sleep(60)
 

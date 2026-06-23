@@ -29,7 +29,7 @@ _logo_cache: dict = {}
 def _headers() -> dict:
     key = os.getenv("LIQUIPEDIA_API_KEY", "")
     if not key:
-        print("[OWCS] 경고: LIQUIPEDIA_API_KEY 환경변수가 설정되지 않았습니다!")
+        print("OWCS: 경고: LIQUIPEDIA_API_KEY 환경변수가 설정되지 않았습니다!")
     return {"Authorization": f"Apikey {key}", "Accept": "application/json"}
 
 
@@ -44,9 +44,9 @@ def _load_cache():
                 m["dt"] = datetime.fromisoformat(m["dt"])
                 matches.append(m)
             _cache = {"matches": matches, "updated_at": data.get("updated_at", 0)}
-            print(f"[OWCS] 디스크 캐시 로드: {len(matches)}경기")
+            print(f"OWCS: 디스크 캐시 로드: {len(matches)}경기")
     except Exception as e:
-        print(f"[OWCS] 캐시 로드 실패: {e}")
+        print(f"OWCS: 캐시 로드 실패: {e}")
 
 
 def _save_cache():
@@ -61,7 +61,7 @@ def _save_cache():
         with open(CACHE_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False)
     except Exception as e:
-        print(f"[OWCS] 캐시 저장 실패: {e}")
+        print(f"OWCS: 캐시 저장 실패: {e}")
 
 
 def _parse_match(raw: dict) -> dict | None:
@@ -100,23 +100,23 @@ async def _fetch_tournament(session: aiohttp.ClientSession, tournament: str) -> 
                                    timeout=aiohttp.ClientTimeout(total=15)) as resp:
                 if resp.status == 429:
                     if attempt == 0:
-                        print(f"[OWCS] 429 — URL: {API_BASE}, tournament: {tournament}")
+                        print(f"OWCS: 429 — URL: {API_BASE}, tournament: {tournament}")
                         await asyncio.sleep(30)
                         continue
-                    print(f"[OWCS] 429 재시도 실패: {tournament}")
+                    print(f"OWCS: 429 재시도 실패: {tournament}")
                     return []
                 if resp.status != 200:
-                    print(f"[OWCS] HTTP {resp.status}: {tournament}")
+                    print(f"OWCS: HTTP {resp.status}: {tournament}")
                     return []
                 data = await resp.json()
                 if data.get("error"):
-                    print(f"[OWCS] API 오류: {data['error']}")
+                    print(f"OWCS: API 오류: {data['error']}")
                     return []
                 matches = [m for raw in data.get("result", []) if (m := _parse_match(raw))]
-                print(f"[OWCS] {tournament}: {len(matches)}경기")
+                print(f"OWCS: {tournament}: {len(matches)}경기")
                 return matches
         except Exception as e:
-            print(f"[OWCS] {tournament} 로드 실패: {e}")
+            print(f"OWCS: {tournament} 로드 실패: {e}")
             return []
     return []
 
@@ -135,7 +135,7 @@ async def fetch_schedules() -> list:
                     await asyncio.sleep(3)
                 all_matches.extend(await _fetch_tournament(session, t))
         if not all_matches:
-            print("[OWCS] 데이터 없음 — 기존 캐시 유지")
+            print("OWCS: 데이터 없음 — 기존 캐시 유지")
             _cache["updated_at"] = time.time() - CACHE_TTL + 300
             return _cache["matches"]
         unique = list({(m["dt"].isoformat(), m["team1"], m["team2"]): m for m in all_matches}.values())
