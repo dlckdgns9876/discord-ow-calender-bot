@@ -63,7 +63,7 @@ async def check_owcs():
 
         # ── 주차 종료 알림 ───────────────────────────────────
         week_lasts = owcs_module.get_week_last_matches(schedules)
-        for last_match in week_lasts:
+        for week_no, last_match in enumerate(week_lasts, start=1):
             if not owcs_module.is_week_just_ended(last_match):
                 continue
             wid = f"week_end_{owcs_module.match_id(last_match)}"
@@ -73,7 +73,9 @@ async def check_owcs():
 
             # 순위표 이미지 생성
             standings = await owcs_module.fetch_standings()
-            buf  = await owcs_image.draw_standings(standings)
+            buf  = await owcs_image.draw_standings(
+                standings, title=f"WEEK {week_no} STANDINGS"
+            )
             file = discord.File(buf, filename="owcs_standings.png")
 
             week_channels = await db.get_all_owcs_week_channels()
@@ -81,7 +83,7 @@ async def check_owcs():
                 ch = bot.get_channel(channel_id)
                 if ch:
                     await ch.send(
-                        content="📊 **이번 주차 경기가 모두 종료됐습니다! 현재 순위입니다.**",
+                        content=f"📊 **{week_no}주차 경기가 모두 종료됐습니다! 현재 순위입니다.**",
                         file=file,
                     )
                     buf.seek(0)
