@@ -30,6 +30,8 @@ def _headers() -> dict:
     key = os.getenv("LIQUIPEDIA_API_KEY", "")
     if not key:
         print("[OWCS] 경고: LIQUIPEDIA_API_KEY 환경변수가 설정되지 않았습니다!")
+    else:
+        print(f"[OWCS] API 키 확인: 설정됨 ({len(key)}자, ...{key[-6:]})")
     return {"Authorization": f"Apikey {key}", "Accept": "application/json"}
 
 
@@ -98,9 +100,10 @@ async def _fetch_tournament(session: aiohttp.ClientSession, tournament: str) -> 
                                    timeout=aiohttp.ClientTimeout(total=15)) as resp:
                 if resp.status == 429:
                     if attempt == 0:
-                        print(f"[OWCS] 429 — 30초 대기 후 재시도")
+                        print(f"[OWCS] 429 — URL: {API_BASE}, tournament: {tournament}")
                         await asyncio.sleep(30)
                         continue
+                    print(f"[OWCS] 429 재시도 실패: {tournament}")
                     return []
                 if resp.status != 200:
                     print(f"[OWCS] HTTP {resp.status}: {tournament}")
