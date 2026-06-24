@@ -222,6 +222,10 @@ async def draw_match_day(day_matches: list) -> io.BytesIO:
         else:
             draw.text((PAD, cy + 2), dt.strftime("%H:%M KST"), font=f_meta, fill=GRAY)
 
+        venue = m.get("venue", "")
+        if venue:
+            draw.text((PAD, cy + 18), venue, font=f_meta, fill=GRAY)
+
         # ── 팀1 (오른쪽 정렬, 중앙 왼쪽) ──
         t1w = int(draw.textlength(team1, font=f_team))
         t1x = CX - 80 - t1w
