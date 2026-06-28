@@ -54,7 +54,6 @@ async def check_owcs():
             mid = owcs_module.match_id(match)
             if await db.is_owcs_notified(mid):
                 continue
-            await db.mark_owcs_notified(mid)
 
             info = owcs_module.format_info(match)
             embed = discord.Embed(
@@ -66,6 +65,7 @@ async def check_owcs():
             embed.add_field(name="경기",    value=info["matchup"], inline=False)
             embed.add_field(name="📺 공식 방송", value=f"[SOOP 바로가기]({owcs_module.SOOP_URL})", inline=False)
 
+            sent = False
             channels = await db.get_all_owcs_channels()
             for guild_id, channel_id in channels:
                 ch = bot.get_channel(channel_id)
@@ -75,7 +75,15 @@ async def check_owcs():
                     except Exception as e:
                         print(f"OWCS 알림: 채널 {channel_id} 조회 실패: {e}")
                         continue
-                await ch.send(embed=embed)
+                try:
+                    await ch.send(embed=embed)
+                    sent = True
+                except discord.Forbidden:
+                    print(f"OWCS 알림: 채널 {channel_id} 권한 없음 (Missing Permissions)")
+                except Exception as e:
+                    print(f"OWCS 알림: 채널 {channel_id} 전송 실패: {e}")
+            if sent:
+                await db.mark_owcs_notified(mid)
 
         # ── OWWC 1시간 전 알림 ──────────────────────────────
         owwc_matches = await owwc_module.fetch_matches()
@@ -83,7 +91,6 @@ async def check_owcs():
             mid = owwc_module.match_id(match)
             if await db.is_owcs_notified(mid):
                 continue
-            await db.mark_owcs_notified(mid)
 
             embed = discord.Embed(
                 title="🌍 OWWC 2026 경기 1시간 전 알림!",
@@ -94,6 +101,7 @@ async def check_owcs():
             if match.get("venue"):
                 embed.add_field(name="스테이지", value=match["venue"], inline=True)
 
+            sent = False
             for guild_id, channel_id in await db.get_all_owwc_channels():
                 ch = bot.get_channel(channel_id)
                 if ch is None:
@@ -102,7 +110,15 @@ async def check_owcs():
                     except Exception as e:
                         print(f"OWWC 알림: 채널 {channel_id} 조회 실패: {e}")
                         continue
-                await ch.send(embed=embed)
+                try:
+                    await ch.send(embed=embed)
+                    sent = True
+                except discord.Forbidden:
+                    print(f"OWWC 알림: 채널 {channel_id} 권한 없음 (Missing Permissions)")
+                except Exception as e:
+                    print(f"OWWC 알림: 채널 {channel_id} 전송 실패: {e}")
+            if sent:
+                await db.mark_owcs_notified(mid)
 
         # ── 주차 종료 알림 ───────────────────────────────────
         week_lasts = owcs_module.get_week_last_matches(schedules)
@@ -112,15 +128,13 @@ async def check_owcs():
             wid = f"week_end_{owcs_module.match_id(last_match)}"
             if await db.is_owcs_notified(wid):
                 continue
-            await db.mark_owcs_notified(wid)
-
             # 순위표 이미지 생성
             standings = owcs_module.fetch_standings()
-            buf  = await owcs_image.draw_standings(
+            buf = await owcs_image.draw_standings(
                 standings, title=f"WEEK {week_no} STANDINGS"
             )
-            file = discord.File(buf, filename="owcs_standings.png")
 
+            sent = False
             week_channels = await db.get_all_owcs_week_channels()
             for guild_id, channel_id in week_channels:
                 ch = bot.get_channel(channel_id)
@@ -130,11 +144,19 @@ async def check_owcs():
                     except Exception as e:
                         print(f"OWCS 주차 알림: 채널 {channel_id} 조회 실패: {e}")
                         continue
-                buf.seek(0)
-                await ch.send(
-                    content=f"📊 **{week_no}주차 경기가 모두 종료됐습니다! 현재 순위입니다.**",
-                    file=discord.File(buf, filename="owcs_standings.png"),
-                )
+                try:
+                    buf.seek(0)
+                    await ch.send(
+                        content=f"📊 **{week_no}주차 경기가 모두 종료됐습니다! 현재 순위입니다.**",
+                        file=discord.File(buf, filename="owcs_standings.png"),
+                    )
+                    sent = True
+                except discord.Forbidden:
+                    print(f"OWCS 주차 알림: 채널 {channel_id} 권한 없음 (Missing Permissions)")
+                except Exception as e:
+                    print(f"OWCS 주차 알림: 채널 {channel_id} 전송 실패: {e}")
+            if sent:
+                await db.mark_owcs_notified(wid)
 
     except Exception as e:
         print(f"OWCS 알림 오류: {e}")
