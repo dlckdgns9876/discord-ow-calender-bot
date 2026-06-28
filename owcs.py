@@ -238,7 +238,7 @@ def get_upcoming(matches: list, days: int = 7) -> list:
 
 def get_notify_targets(matches: list) -> list:
     now = datetime.now(KST)
-    return [m for m in matches if 50 <= (m["dt"] - now).total_seconds() / 60 <= 70]
+    return [m for m in matches if 45 <= (m["dt"] - now).total_seconds() / 60 <= 75]
 
 
 def group_by_day(matches: list) -> dict:

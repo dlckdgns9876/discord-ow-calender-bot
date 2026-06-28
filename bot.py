@@ -69,8 +69,13 @@ async def check_owcs():
             channels = await db.get_all_owcs_channels()
             for guild_id, channel_id in channels:
                 ch = bot.get_channel(channel_id)
-                if ch:
-                    await ch.send(embed=embed)
+                if ch is None:
+                    try:
+                        ch = await bot.fetch_channel(channel_id)
+                    except Exception as e:
+                        print(f"OWCS 알림: 채널 {channel_id} 조회 실패: {e}")
+                        continue
+                await ch.send(embed=embed)
 
         # ── OWWC 1시간 전 알림 ──────────────────────────────
         owwc_matches = await owwc_module.fetch_matches()
@@ -91,8 +96,13 @@ async def check_owcs():
 
             for guild_id, channel_id in await db.get_all_owwc_channels():
                 ch = bot.get_channel(channel_id)
-                if ch:
-                    await ch.send(embed=embed)
+                if ch is None:
+                    try:
+                        ch = await bot.fetch_channel(channel_id)
+                    except Exception as e:
+                        print(f"OWWC 알림: 채널 {channel_id} 조회 실패: {e}")
+                        continue
+                await ch.send(embed=embed)
 
         # ── 주차 종료 알림 ───────────────────────────────────
         week_lasts = owcs_module.get_week_last_matches(schedules)
@@ -114,12 +124,18 @@ async def check_owcs():
             week_channels = await db.get_all_owcs_week_channels()
             for guild_id, channel_id in week_channels:
                 ch = bot.get_channel(channel_id)
-                if ch:
-                    await ch.send(
-                        content=f"📊 **{week_no}주차 경기가 모두 종료됐습니다! 현재 순위입니다.**",
-                        file=file,
-                    )
-                    buf.seek(0)
+                if ch is None:
+                    try:
+                        ch = await bot.fetch_channel(channel_id)
+                    except Exception as e:
+                        print(f"OWCS 주차 알림: 채널 {channel_id} 조회 실패: {e}")
+                        buf.seek(0)
+                        continue
+                await ch.send(
+                    content=f"📊 **{week_no}주차 경기가 모두 종료됐습니다! 현재 순위입니다.**",
+                    file=file,
+                )
+                buf.seek(0)
 
     except Exception as e:
         print(f"OWCS 알림 오류: {e}")
