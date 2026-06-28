@@ -218,7 +218,7 @@ def get_week_last_matches(matches: list) -> list:
     return [max(week, key=lambda x: x["dt"]) for week in weeks]
 
 
-def is_week_just_ended(last_match: dict, tolerance_min: int = 15) -> bool:
+def is_week_just_ended(last_match: dict, tolerance_min: int = 30) -> bool:
     """주차 마지막 경기가 방금 끝났는지 (종료 후 tolerance_min 이내)"""
     now    = datetime.now(KST)
     end_dt = last_match["dt"] + timedelta(hours=3)

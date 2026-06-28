@@ -129,13 +129,12 @@ async def check_owcs():
                         ch = await bot.fetch_channel(channel_id)
                     except Exception as e:
                         print(f"OWCS 주차 알림: 채널 {channel_id} 조회 실패: {e}")
-                        buf.seek(0)
                         continue
+                buf.seek(0)
                 await ch.send(
                     content=f"📊 **{week_no}주차 경기가 모두 종료됐습니다! 현재 순위입니다.**",
-                    file=file,
+                    file=discord.File(buf, filename="owcs_standings.png"),
                 )
-                buf.seek(0)
 
     except Exception as e:
         print(f"OWCS 알림 오류: {e}")
