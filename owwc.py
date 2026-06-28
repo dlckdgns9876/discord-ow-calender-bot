@@ -96,12 +96,12 @@ async def fetch_matches() -> list:
                     timeout=aiohttp.ClientTimeout(total=15)
                 ) as resp:
                     if resp.status == 429:
-                        print("OWWC: 429 — 재시도 생략")
-                        _cache["updated_at"] = time.time() - CACHE_TTL + 300
+                        print("OWWC: 429 — 한도 초과, 다음 갱신 주기까지 대기")
+                        _cache["updated_at"] = time.time()
                         return _cache["matches"]
                     if resp.status != 200:
                         print(f"OWWC: HTTP {resp.status}")
-                        _cache["updated_at"] = time.time() - CACHE_TTL + 300
+                        _cache["updated_at"] = time.time()
                         return _cache["matches"]
                     data = await resp.json()
             matches = [m for raw in data.get("result", []) if (m := _parse_match(raw))]
@@ -110,7 +110,7 @@ async def fetch_matches() -> list:
             _save_cache()
         except Exception as e:
             print(f"OWWC: 로드 실패: {e}")
-            _cache["updated_at"] = time.time() - CACHE_TTL + 300
+            _cache["updated_at"] = time.time()
         return _cache["matches"]
 
 
