@@ -91,30 +91,6 @@ def _parse_match(raw: dict) -> dict | None:
     }
 
 
-async def _fetch_tournament(session: aiohttp.ClientSession, tournament: str) -> list:
-    params = {"wiki": "overwatch", "conditions": f"[[tournament::{tournament}]]",
-              "limit": "100"}
-    try:
-        async with session.get(API_BASE, params=params, headers=_headers(),
-                               timeout=aiohttp.ClientTimeout(total=15)) as resp:
-            if resp.status == 429:
-                print(f"OWCS: 429 — 한도 초과, 다음 갱신 주기까지 대기: {tournament}")
-                return []
-            if resp.status != 200:
-                print(f"OWCS: HTTP {resp.status}: {tournament}")
-                return []
-            data = await resp.json()
-            if data.get("error"):
-                print(f"OWCS: API 오류: {data['error']}")
-                return []
-            matches = [m for raw in data.get("result", []) if (m := _parse_match(raw))]
-            print(f"OWCS: {tournament}: {len(matches)}경기")
-            return matches
-    except Exception as e:
-        print(f"OWCS: {tournament} 로드 실패: {e}")
-        return []
-
-
 async def fetch_schedules() -> list:
     global _cache
     if time.time() - _cache["updated_at"] < CACHE_TTL:
@@ -122,16 +98,39 @@ async def fetch_schedules() -> list:
     async with _fetch_lock:
         if time.time() - _cache["updated_at"] < CACHE_TTL:
             return _cache["matches"]
-        all_matches = []
-        async with aiohttp.ClientSession() as session:
-            for i, t in enumerate(TOURNAMENTS):
-                if i > 0:
-                    await asyncio.sleep(3)
-                all_matches.extend(await _fetch_tournament(session, t))
+        conditions = " OR ".join(f"[[tournament::{t}]]" for t in TOURNAMENTS)
+        params = {"wiki": "overwatch", "conditions": conditions, "limit": "500"}
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(API_BASE, params=params, headers=_headers(),
+                                       timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                    if resp.status == 429:
+                        print("OWCS: 429 — 한도 초과, 다음 갱신 주기까지 대기")
+                        _cache["updated_at"] = time.time()
+                        _save_cache()
+                        return _cache["matches"]
+                    if resp.status != 200:
+                        print(f"OWCS: HTTP {resp.status}")
+                        _cache["updated_at"] = time.time()
+                        _save_cache()
+                        return _cache["matches"]
+                    data = await resp.json()
+            if data.get("error"):
+                print(f"OWCS: API 오류: {data['error']}")
+                _cache["updated_at"] = time.time()
+                _save_cache()
+                return _cache["matches"]
+            all_matches = [m for raw in data.get("result", []) if (m := _parse_match(raw))]
+            print(f"OWCS: {len(all_matches)}경기 로드")
+        except Exception as e:
+            print(f"OWCS: 로드 실패: {e}")
+            _cache["updated_at"] = time.time()
+            _save_cache()
+            return _cache["matches"]
         if not all_matches:
             print("OWCS: 데이터 없음 — 기존 캐시 유지 (1시간 후 재시도)")
             _cache["updated_at"] = time.time()
-            _save_cache()  # 재시작 후 즉시 재시도 방지
+            _save_cache()
             return _cache["matches"]
         unique = list({(m["dt"].isoformat(), m["team1"], m["team2"]): m for m in all_matches}.values())
         _cache = {"matches": sorted(unique, key=lambda x: x["dt"]), "updated_at": time.time()}
