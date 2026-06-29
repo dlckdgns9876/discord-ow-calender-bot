@@ -130,7 +130,8 @@ async def fetch_schedules() -> list:
                 all_matches.extend(await _fetch_tournament(session, t))
         if not all_matches:
             print("OWCS: 데이터 없음 — 기존 캐시 유지 (1시간 후 재시도)")
-            _cache["updated_at"] = time.time()  # 다음 재시도는 CACHE_TTL 후
+            _cache["updated_at"] = time.time()
+            _save_cache()  # 재시작 후 즉시 재시도 방지
             return _cache["matches"]
         unique = list({(m["dt"].isoformat(), m["team1"], m["team2"]): m for m in all_matches}.values())
         _cache = {"matches": sorted(unique, key=lambda x: x["dt"]), "updated_at": time.time()}
