@@ -105,7 +105,8 @@ async def fetch_schedules() -> list:
                 async with session.get(API_BASE, params=params, headers=_headers(),
                                        timeout=aiohttp.ClientTimeout(total=15)) as resp:
                     if resp.status == 429:
-                        print("OWCS: 429 — 한도 초과, 다음 갱신 주기까지 대기")
+                        retry_after = resp.headers.get("Retry-After", "알 수 없음")
+                        print(f"OWCS: 429 — 한도 초과 (Retry-After: {retry_after}초), 다음 갱신 주기까지 대기")
                         _cache["updated_at"] = time.time()
                         _save_cache()
                         return _cache["matches"]

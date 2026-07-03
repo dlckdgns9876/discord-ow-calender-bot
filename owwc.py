@@ -96,7 +96,8 @@ async def fetch_matches() -> list:
                     timeout=aiohttp.ClientTimeout(total=15)
                 ) as resp:
                     if resp.status == 429:
-                        print("OWWC: 429 — 한도 초과, 다음 갱신 주기까지 대기")
+                        retry_after = resp.headers.get("Retry-After", "알 수 없음")
+                        print(f"OWWC: 429 — 한도 초과 (Retry-After: {retry_after}초), 다음 갱신 주기까지 대기")
                         _cache["updated_at"] = time.time()
                         _save_cache()  # 재시작 후 즉시 재시도 방지
                         return _cache["matches"]
