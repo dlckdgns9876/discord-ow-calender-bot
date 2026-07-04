@@ -24,14 +24,43 @@ WIKI_API      = "https://liquipedia.net/overwatch/api.php"
 WIKI_PAGE     = "Overwatch_Champions_Series/2026/Asia/Stage_2/Korea"
 WIKI_SECTIONS = {"Playoffs Seeding Decider Matches", "Last Chance Qualifier", "Regional Playoffs"}
 
-_BASE      = os.path.dirname(os.path.abspath(__file__))
-CACHE_FILE = os.path.join(_BASE, "owcs_cache.json")
-CACHE_TTL  = 3600
+_BASE           = os.path.dirname(os.path.abspath(__file__))
+CACHE_FILE      = os.path.join(_BASE, "owcs_cache.json")
+WIKI_CACHE_FILE = os.path.join(_BASE, "owcs_wiki_cache.json")
+CACHE_TTL       = 3600
 
 _cache: dict      = {"matches": [], "updated_at": 0}
 _fetch_lock       = asyncio.Lock()
 _logo_cache: dict = {}
 _wiki_cache: dict = {"matches": [], "updated_at": 0}
+
+
+def _save_wiki_cache():
+    try:
+        data = {
+            "updated_at": _wiki_cache["updated_at"],
+            "matches": [{**m, "dt": m["dt"].isoformat()} for m in _wiki_cache["matches"]],
+        }
+        with open(WIKI_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+    except Exception as e:
+        print(f"OWCS: 위키 캐시 저장 실패: {e}")
+
+
+def _load_wiki_cache():
+    global _wiki_cache
+    try:
+        if os.path.exists(WIKI_CACHE_FILE):
+            with open(WIKI_CACHE_FILE, encoding="utf-8") as f:
+                data = json.load(f)
+            matches = []
+            for m in data.get("matches", []):
+                m["dt"] = datetime.fromisoformat(m["dt"])
+                matches.append(m)
+            _wiki_cache = {"matches": matches, "updated_at": data.get("updated_at", 0)}
+            print(f"OWCS: 위키 캐시 로드: {len(matches)}경기")
+    except Exception as e:
+        print(f"OWCS: 위키 캐시 로드 실패: {e}")
 
 
 def _headers() -> dict:
@@ -351,6 +380,7 @@ async def fetch_page_schedule() -> list:
         matches = _parse_wikitext(wikitext)
         print(f"OWCS: 위키 파싱 {len(matches)}경기")
         _wiki_cache = {"matches": matches, "updated_at": time.time()}
+        _save_wiki_cache()
     except Exception as e:
         print(f"OWCS: 위키 파싱 실패: {e}")
         _wiki_cache["updated_at"] = time.time()
@@ -358,3 +388,4 @@ async def fetch_page_schedule() -> list:
 
 
 _load_cache()
+_load_wiki_cache()
