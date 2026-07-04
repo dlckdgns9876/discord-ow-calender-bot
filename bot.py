@@ -48,6 +48,10 @@ async def check_owcs():
     try:
         schedules = await owcs_module.fetch_schedules()
 
+        # OWCS와 OWWC API 호출이 동시에 만료될 때 연달아 나가지 않도록 간격 확보
+        if time.time() - owwc_module._cache["updated_at"] >= owwc_module.CACHE_TTL:
+            await asyncio.sleep(65)
+
         # ── 경기 1시간 전 알림 ───────────────────────────────
         targets = owcs_module.get_notify_targets(schedules)
         for match in targets:
