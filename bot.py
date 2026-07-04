@@ -53,7 +53,10 @@ async def check_owcs():
             await asyncio.sleep(65)
 
         # ── 경기 1시간 전 알림 ───────────────────────────────
-        targets = owcs_module.get_notify_targets(schedules)
+        # v3 API에 없는 위키 경기(LCQ/Seeding/Playoffs)도 포함
+        wiki = owcs_module._wiki_cache.get("matches", [])
+        all_schedules = list({owcs_module.match_id(m): m for m in schedules + wiki}.values())
+        targets = owcs_module.get_notify_targets(all_schedules)
         for match in targets:
             mid = owcs_module.match_id(match)
             if await db.is_owcs_notified(mid):
@@ -125,7 +128,8 @@ async def check_owcs():
                 await db.mark_owcs_notified(mid)
 
         # ── 주차 종료 알림 ───────────────────────────────────
-        week_lasts = owcs_module.get_week_last_matches(schedules)
+        rs_only = [m for m in schedules if "Regular Season" in m.get("label", "")]
+        week_lasts = owcs_module.get_week_last_matches(rs_only)
         for week_no, last_match in enumerate(week_lasts, start=1):
             if not owcs_module.is_week_just_ended(last_match):
                 continue
@@ -515,6 +519,35 @@ async def set_owwc_channel(interaction: discord.Interaction, 채널: discord.Tex
     await interaction.response.send_message(
         f"{채널.mention} 채널에 OWWC 2026 경기 시작 1시간 전 알림을 보냅니다.", ephemeral=True
     )
+
+
+@bot.tree.command(name="owcs알림테스트", description="[관리자] 다음 OWCS 경기 알림을 지금 이 채널로 즉시 테스트 발송합니다")
+async def test_owcs_notify(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+    from datetime import timezone, timedelta
+    KST = timezone(timedelta(hours=9))
+    now = datetime.now(KST)
+
+    all_matches = owcs_module._cache["matches"] + owcs_module._wiki_cache["matches"]
+    upcoming = [m for m in all_matches if now <= m["dt"] <= now + timedelta(hours=3)]
+    if not upcoming:
+        upcoming = [m for m in all_matches if now <= m["dt"] <= now + timedelta(hours=24)]
+    upcoming.sort(key=lambda x: x["dt"])
+
+    if not upcoming:
+        await interaction.followup.send("테스트할 경기가 없습니다.", ephemeral=True)
+        return
+
+    match = upcoming[0]
+    info = owcs_module.format_info(match)
+    embed = discord.Embed(title="🎮 OWCS 경기 1시간 전 알림! (테스트)", color=discord.Color.orange())
+    embed.add_field(name="대회",      value=info["label"],   inline=False)
+    embed.add_field(name="시작 시간", value=info["time"],    inline=True)
+    embed.add_field(name="경기",      value=info["matchup"], inline=False)
+    embed.add_field(name="📺 공식 방송", value=f"[SOOP 바로가기]({owcs_module.SOOP_URL})", inline=False)
+
+    await interaction.channel.send(embed=embed)
+    await interaction.followup.send(f"테스트 알림 발송 완료 ({match['team1']} vs {match['team2']})", ephemeral=True)
 
 
 @bot.tree.command(name="owcs주차알림설정", description="주차 마지막 경기 종료 후 순위 알림을 받을 채널을 설정합니다")

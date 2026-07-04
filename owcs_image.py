@@ -135,6 +135,7 @@ async def draw_match_day(day_matches: list) -> io.BytesIO:
     KST = timezone(timedelta(hours=9))
     now = datetime.now(KST)
 
+    day_matches = sorted(day_matches, key=lambda m: m["dt"])
     n = len(day_matches)
     img_h = HEADER_H + n * ROW_H + PAD // 2
 
