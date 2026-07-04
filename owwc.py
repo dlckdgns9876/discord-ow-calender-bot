@@ -96,11 +96,13 @@ async def fetch_matches() -> list:
                     timeout=aiohttp.ClientTimeout(total=15)
                 ) as resp:
                     if resp.status == 429:
-                        retry_after = resp.headers.get("Retry-After", "없음")
-                        body = await resp.text()
-                        print(f"OWWC: 429 — Retry-After={retry_after} | body={body[:300]}")
-                        _cache["updated_at"] = time.time()
-                        _save_cache()  # 재시작 후 즉시 재시도 방지
+                        try:
+                            retry_after = int(resp.headers.get("Retry-After", CACHE_TTL))
+                        except (ValueError, TypeError):
+                            retry_after = CACHE_TTL
+                        print(f"OWWC: 429 — {retry_after}초 후 재시도 예정")
+                        _cache["updated_at"] = time.time() + retry_after - CACHE_TTL
+                        _save_cache()
                         return _cache["matches"]
                     if resp.status != 200:
                         print(f"OWWC: HTTP {resp.status}")

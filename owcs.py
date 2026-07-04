@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import json
 import asyncio
@@ -14,8 +15,14 @@ TOURNAMENTS = [
     "Overwatch Champions Series 2026 - Korea Stage 1 - Regular Season",
     "Overwatch Champions Series 2026 - Korea Stage 1 - Playoffs",
     "Overwatch Champions Series 2026 - Korea Stage 2 - Regular Season",
-    "Overwatch Champions Series 2026 - Korea Stage 2 - Playoffs",
+    "Overwatch Champions Series 2026 - Korea Stage 2 - Playoffs Seeding Decider Matches",
+    "Overwatch Champions Series 2026 - Korea Stage 2 - Last Chance Qualifier",
+    "Overwatch Champions Series 2026 - Korea Stage 2 - Regional Playoffs",
 ]
+
+WIKI_API      = "https://liquipedia.net/overwatch/api.php"
+WIKI_PAGE     = "Overwatch_Champions_Series/2026/Asia/Stage_2/Korea"
+WIKI_SECTIONS = {"Playoffs Seeding Decider Matches", "Last Chance Qualifier", "Regional Playoffs"}
 
 _BASE      = os.path.dirname(os.path.abspath(__file__))
 CACHE_FILE = os.path.join(_BASE, "owcs_cache.json")
@@ -24,6 +31,7 @@ CACHE_TTL  = 3600
 _cache: dict      = {"matches": [], "updated_at": 0}
 _fetch_lock       = asyncio.Lock()
 _logo_cache: dict = {}
+_wiki_cache: dict = {"matches": [], "updated_at": 0}
 
 
 def _headers() -> dict:
@@ -105,10 +113,12 @@ async def fetch_schedules() -> list:
                 async with session.get(API_BASE, params=params, headers=_headers(),
                                        timeout=aiohttp.ClientTimeout(total=15)) as resp:
                     if resp.status == 429:
-                        retry_after = resp.headers.get("Retry-After", "없음")
-                        body = await resp.text()
-                        print(f"OWCS: 429 — Retry-After={retry_after} | body={body[:300]}")
-                        _cache["updated_at"] = time.time()
+                        try:
+                            retry_after = int(resp.headers.get("Retry-After", CACHE_TTL))
+                        except (ValueError, TypeError):
+                            retry_after = CACHE_TTL
+                        print(f"OWCS: 429 — {retry_after}초 후 재시도 예정")
+                        _cache["updated_at"] = time.time() + retry_after - CACHE_TTL
                         _save_cache()
                         return _cache["matches"]
                     if resp.status != 200:
@@ -255,6 +265,84 @@ def format_info(m: dict) -> dict:
         "time":    m["dt"].strftime("%Y-%m-%d %H:%M KST"),
         "matchup": f"{prefix}**{m.get('team1','?')}** vs **{m.get('team2','?')}**",
     }
+
+
+def _parse_wikitext(wikitext: str) -> list:
+    matches = []
+    section = ""
+    lines = wikitext.split("\n")
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+
+        sm = re.match(r"===\{\{Stage\|([^}]+)\}\}===", line.strip())
+        if sm:
+            section = sm.group(1)
+
+        if section not in WIKI_SECTIONS:
+            i += 1
+            continue
+
+        dm = re.match(r"\s*\|date=(\d{4}-\d{2}-\d{2})\s*-\s*(\d{2}:\d{2})\s*\{\{Abbr/KST\}\}", line)
+        if dm:
+            try:
+                dt = datetime.strptime(f"{dm.group(1)} {dm.group(2)}", "%Y-%m-%d %H:%M").replace(tzinfo=KST)
+            except ValueError:
+                i += 1
+                continue
+
+            t1 = t2 = ""
+            map_winners: list[int] = []
+            for j in range(i + 1, min(i + 60, len(lines))):
+                l = lines[j]
+                m1 = re.match(r"\s*\|opponent1=\{\{TeamOpponent\|([^|}]*)\}\}", l)
+                m2 = re.match(r"\s*\|opponent2=\{\{TeamOpponent\|([^|}]*)\}\}", l)
+                wm = re.search(r"\|winner=([12])", l)
+                if m1:
+                    t1 = m1.group(1).strip()
+                if m2:
+                    t2 = m2.group(1).strip()
+                if wm:
+                    map_winners.append(int(wm.group(1)))
+                if l.strip().startswith(("|M", "|R")) and j > i + 5:
+                    break
+
+            if t1 and t2:
+                s1 = sum(1 for w in map_winners if w == 1)
+                s2 = sum(1 for w in map_winners if w == 2)
+                matches.append({
+                    "dt": dt, "label": section,
+                    "team1": t1, "team2": t2,
+                    "score1": s1, "score2": s2,
+                    "logo1": "", "logo2": "",
+                    "finished": bool(map_winners),
+                })
+        i += 1
+    return matches
+
+
+async def fetch_page_schedule() -> list:
+    """위키텍스트에서 LCQ/세딩/플레이오프 일정 파싱 (v3 API 미지원 기간 fallback)"""
+    global _wiki_cache
+    if time.time() - _wiki_cache["updated_at"] < CACHE_TTL:
+        return _wiki_cache["matches"]
+    try:
+        params = {"action": "parse", "page": WIKI_PAGE, "prop": "wikitext", "format": "json"}
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                WIKI_API, params=params,
+                headers={"User-Agent": "DiscordOWCSBot/1.0 (contact: chang431@gmail.com)"},
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as resp:
+                data = await resp.json()
+        wikitext = data.get("parse", {}).get("wikitext", {}).get("*", "")
+        matches = _parse_wikitext(wikitext)
+        print(f"OWCS: 위키 파싱 {len(matches)}경기")
+        _wiki_cache = {"matches": matches, "updated_at": time.time()}
+    except Exception as e:
+        print(f"OWCS: 위키 파싱 실패: {e}")
+        _wiki_cache["updated_at"] = time.time()
+    return _wiki_cache["matches"]
 
 
 _load_cache()
