@@ -436,6 +436,7 @@ async def show_owcs_schedule(interaction: discord.Interaction, 일수: int = 7):
         if not upcoming:
             # v3 API에 LCQ/세딩/플레이오프 데이터 없으면 위키텍스트 fallback
             page_matches = await owcs_module.fetch_page_schedule()
+            print(f"OWCS: 위키 fallback {len(page_matches)}경기 → upcoming {len(owcs_module.get_upcoming(page_matches, days=일수))}경기")
             upcoming = owcs_module.get_upcoming(page_matches, days=일수)
     except Exception as e:
         await interaction.followup.send(f"일정을 불러오지 못했습니다: {e}", ephemeral=True)
