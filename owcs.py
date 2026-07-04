@@ -334,6 +334,18 @@ async def fetch_page_schedule() -> list:
                 headers={"User-Agent": "DiscordOWCSBot/1.0 (contact: chang431@gmail.com)"},
                 timeout=aiohttp.ClientTimeout(total=15),
             ) as resp:
+                if resp.status == 429:
+                    try:
+                        retry_after = int(resp.headers.get("Retry-After", CACHE_TTL))
+                    except (ValueError, TypeError):
+                        retry_after = CACHE_TTL
+                    print(f"OWCS: 위키 429 — {retry_after}초 후 재시도 예정")
+                    _wiki_cache["updated_at"] = time.time() + retry_after - CACHE_TTL
+                    return _wiki_cache["matches"]
+                if resp.status != 200:
+                    print(f"OWCS: 위키 HTTP {resp.status}")
+                    _wiki_cache["updated_at"] = time.time()
+                    return _wiki_cache["matches"]
                 data = await resp.json()
         wikitext = data.get("parse", {}).get("wikitext", {}).get("*", "")
         matches = _parse_wikitext(wikitext)
