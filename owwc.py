@@ -128,7 +128,7 @@ def get_upcoming(matches: list, days: int = 30) -> list:
 
 def get_notify_targets(matches: list) -> list:
     now = datetime.now(KST)
-    return [m for m in matches if 50 <= (m["dt"] - now).total_seconds() / 60 <= 70]
+    return [m for m in matches if 20 <= (m["dt"] - now).total_seconds() / 60 <= 40]
 
 
 def is_ongoing(m: dict) -> bool:

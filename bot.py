@@ -64,7 +64,7 @@ async def check_owcs():
 
             info = owcs_module.format_info(match)
             embed = discord.Embed(
-                title="🎮 OWCS 경기 1시간 전 알림!",
+                title="🎮 OWCS 경기 30분 전 알림!",
                 color=discord.Color.orange(),
             )
             embed.add_field(name="대회",    value=info["label"],   inline=False)
@@ -100,7 +100,7 @@ async def check_owcs():
                 continue
 
             embed = discord.Embed(
-                title="🌍 OWWC 2026 경기 1시간 전 알림!",
+                title="🌍 OWWC 2026 경기 30분 전 알림!",
                 color=discord.Color.blue(),
             )
             embed.add_field(name="시작 시간", value=match["dt"].strftime("%Y-%m-%d %H:%M KST"), inline=True)
@@ -421,12 +421,12 @@ async def show_calendar(
     await interaction.followup.send(file=file)
 
 
-@bot.tree.command(name="owcs알림설정", description="OWCS 경기 1시간 전 알림을 받을 채널을 설정합니다")
+@bot.tree.command(name="owcs알림설정", description="OWCS 경기 30분 전 알림을 받을 채널을 설정합니다")
 @discord.app_commands.describe(채널="알림을 받을 채널")
 async def set_owcs_channel(interaction: discord.Interaction, 채널: discord.TextChannel):
     await db.set_owcs_channel(interaction.guild_id, 채널.id)
     await interaction.response.send_message(
-        f"{채널.mention} 채널에 OWCS 경기 시작 1시간 전 알림을 보냅니다.", ephemeral=True
+        f"{채널.mention} 채널에 OWCS 경기 시작 30분 전 알림을 보냅니다.", ephemeral=True
     )
 
 
@@ -512,12 +512,12 @@ async def show_owwc_schedule(interaction: discord.Interaction, 일수: int = 30)
     await interaction.followup.send(content=content, files=files)
 
 
-@bot.tree.command(name="owwc알림설정", description="OWWC 2026 경기 1시간 전 알림을 받을 채널을 설정합니다")
+@bot.tree.command(name="owwc알림설정", description="OWWC 2026 경기 30분 전 알림을 받을 채널을 설정합니다")
 @discord.app_commands.describe(채널="알림을 받을 채널")
 async def set_owwc_channel(interaction: discord.Interaction, 채널: discord.TextChannel):
     await db.set_owwc_channel(interaction.guild_id, 채널.id)
     await interaction.response.send_message(
-        f"{채널.mention} 채널에 OWWC 2026 경기 시작 1시간 전 알림을 보냅니다.", ephemeral=True
+        f"{채널.mention} 채널에 OWWC 2026 경기 시작 30분 전 알림을 보냅니다.", ephemeral=True
     )
 
 
