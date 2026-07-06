@@ -15,7 +15,7 @@ TOURNAMENTS = [
     "Overwatch Champions Series 2026 - Midseason Championship - Playoffs",
 ]
 
-CACHE_FILE = os.path.join(_BASE, "owcs_msc_cache.json")
+CACHE_FILE = os.path.join(_BASE, "owcs_international_exhibition_cache.json")
 CACHE_TTL  = 3600
 
 _cache      = {"matches": [], "updated_at": 0}

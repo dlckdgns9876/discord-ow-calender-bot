@@ -45,7 +45,7 @@ async def init_db():
             )
         """)
         await db.execute("""
-            CREATE TABLE IF NOT EXISTS owcs_msc_channels (
+            CREATE TABLE IF NOT EXISTS owcs_int_channels (
                 guild_id   INTEGER PRIMARY KEY,
                 channel_id INTEGER NOT NULL
             )
@@ -126,18 +126,18 @@ async def get_all_owwc_channels() -> list:
 
 # ── OWCS MSC 알림 채널 ────────────────────────────────────
 
-async def set_owcs_msc_channel(guild_id: int, channel_id: int):
+async def set_owcs_int_channel(guild_id: int, channel_id: int):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
-            "INSERT OR REPLACE INTO owcs_msc_channels (guild_id, channel_id) VALUES (?, ?)",
+            "INSERT OR REPLACE INTO owcs_int_channels (guild_id, channel_id) VALUES (?, ?)",
             (guild_id, channel_id),
         )
         await db.commit()
 
 
-async def get_all_owcs_msc_channels() -> list:
+async def get_all_owcs_int_channels() -> list:
     async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT guild_id, channel_id FROM owcs_msc_channels") as cur:
+        async with db.execute("SELECT guild_id, channel_id FROM owcs_int_channels") as cur:
             return await cur.fetchall()
 
 

@@ -20,7 +20,7 @@ import db
 import calendar_image
 import owcs as owcs_module
 import owwc as owwc_module
-import owcs_msc as owcs_msc_module
+import owcs_international_exhibition as owcs_int_module
 import owcs_image
 
 load_dotenv()
@@ -129,9 +129,9 @@ async def check_owcs():
                 await db.mark_owcs_notified(mid)
 
         # ── MSC 30분 전 알림 ────────────────────────────────
-        msc_matches = await owcs_msc_module.fetch_matches()
-        for match in owcs_msc_module.get_notify_targets(msc_matches):
-            mid = owcs_msc_module.match_id(match)
+        msc_matches = await owcs_int_module.fetch_matches()
+        for match in owcs_int_module.get_notify_targets(msc_matches):
+            mid = owcs_int_module.match_id(match)
             if await db.is_owcs_notified(mid):
                 continue
 
@@ -145,7 +145,7 @@ async def check_owcs():
                 embed.add_field(name="스테이지", value=match["venue"], inline=True)
 
             sent = False
-            for guild_id, channel_id in await db.get_all_owcs_msc_channels():
+            for guild_id, channel_id in await db.get_all_owcs_int_channels():
                 ch = bot.get_channel(channel_id)
                 if ch is None:
                     try:
@@ -588,11 +588,11 @@ async def test_owcs_notify(interaction: discord.Interaction):
 
 @bot.tree.command(name="owcs국제전일정", description="다가오는 OWCS MSC 2026 경기 일정을 보여줍니다")
 @discord.app_commands.describe(일수="며칠 이내 일정을 볼지 (기본: 14일)")
-async def show_owcs_msc_schedule(interaction: discord.Interaction, 일수: int = 14):
+async def show_owcs_int_schedule(interaction: discord.Interaction, 일수: int = 14):
     await interaction.response.defer()
     try:
-        matches  = await owcs_msc_module.fetch_matches()
-        upcoming = owcs_msc_module.get_upcoming(matches, days=일수)
+        matches  = await owcs_int_module.fetch_matches()
+        upcoming = owcs_int_module.get_upcoming(matches, days=일수)
     except Exception as e:
         await interaction.followup.send(f"일정을 불러오지 못했습니다: {e}", ephemeral=True)
         return
@@ -604,13 +604,13 @@ async def show_owcs_msc_schedule(interaction: discord.Interaction, 일수: int =
         )
         return
 
-    day_groups = owcs_msc_module.group_by_day(upcoming)
-    has_ongoing = any(owcs_msc_module.is_ongoing(m) for m in upcoming)
+    day_groups = owcs_int_module.group_by_day(upcoming)
+    has_ongoing = any(owcs_int_module.is_ongoing(m) for m in upcoming)
 
     files = []
     for day_key, day_matches in list(day_groups.items())[:4]:
         buf = await owcs_image.draw_match_day(day_matches)
-        files.append(discord.File(buf, filename=f"owcs_msc_{day_key}.png"))
+        files.append(discord.File(buf, filename=f"owcs_int_{day_key}.png"))
 
     content = f"📅 **OWCS MSC 2026 경기 일정 (향후 {일수}일)**\n*출처: Liquipedia*"
     if has_ongoing:
@@ -620,8 +620,8 @@ async def show_owcs_msc_schedule(interaction: discord.Interaction, 일수: int =
 
 @bot.tree.command(name="owcs국제전알림설정", description="OWCS MSC 2026 경기 30분 전 알림을 받을 채널을 설정합니다")
 @discord.app_commands.describe(채널="알림을 받을 채널")
-async def set_owcs_msc_channel(interaction: discord.Interaction, 채널: discord.TextChannel):
-    await db.set_owcs_msc_channel(interaction.guild_id, 채널.id)
+async def set_owcs_int_channel(interaction: discord.Interaction, 채널: discord.TextChannel):
+    await db.set_owcs_int_channel(interaction.guild_id, 채널.id)
     await interaction.response.send_message(
         f"{채널.mention} 채널에 OWCS MSC 2026 경기 시작 30분 전 알림을 보냅니다.", ephemeral=True
     )
