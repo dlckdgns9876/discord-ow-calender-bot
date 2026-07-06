@@ -20,6 +20,7 @@ import db
 import calendar_image
 import owcs as owcs_module
 import owwc as owwc_module
+import owcs_msc as owcs_msc_module
 import owcs_image
 
 load_dotenv()
@@ -124,6 +125,41 @@ async def check_owcs():
                     print(f"OWWC 알림: 채널 {channel_id} 권한 없음 (Missing Permissions)")
                 except Exception as e:
                     print(f"OWWC 알림: 채널 {channel_id} 전송 실패: {e}")
+            if sent:
+                await db.mark_owcs_notified(mid)
+
+        # ── MSC 30분 전 알림 ────────────────────────────────
+        msc_matches = await owcs_msc_module.fetch_matches()
+        for match in owcs_msc_module.get_notify_targets(msc_matches):
+            mid = owcs_msc_module.match_id(match)
+            if await db.is_owcs_notified(mid):
+                continue
+
+            embed = discord.Embed(
+                title="🌐 OWCS MSC 2026 경기 30분 전 알림!",
+                color=discord.Color.gold(),
+            )
+            embed.add_field(name="시작 시간", value=match["dt"].strftime("%Y-%m-%d %H:%M KST"), inline=True)
+            embed.add_field(name="경기", value=f"**{match['team1']}** vs **{match['team2']}**", inline=False)
+            if match.get("venue"):
+                embed.add_field(name="스테이지", value=match["venue"], inline=True)
+
+            sent = False
+            for guild_id, channel_id in await db.get_all_owcs_msc_channels():
+                ch = bot.get_channel(channel_id)
+                if ch is None:
+                    try:
+                        ch = await bot.fetch_channel(channel_id)
+                    except Exception as e:
+                        print(f"MSC 알림: 채널 {channel_id} 조회 실패: {e}")
+                        continue
+                try:
+                    await ch.send(embed=embed)
+                    sent = True
+                except discord.Forbidden:
+                    print(f"MSC 알림: 채널 {channel_id} 권한 없음 (Missing Permissions)")
+                except Exception as e:
+                    print(f"MSC 알림: 채널 {channel_id} 전송 실패: {e}")
             if sent:
                 await db.mark_owcs_notified(mid)
 
@@ -548,6 +584,47 @@ async def test_owcs_notify(interaction: discord.Interaction):
 
     await interaction.channel.send(embed=embed)
     await interaction.followup.send(f"테스트 알림 발송 완료 ({match['team1']} vs {match['team2']})", ephemeral=True)
+
+
+@bot.tree.command(name="owcs국제전일정", description="다가오는 OWCS MSC 2026 경기 일정을 보여줍니다")
+@discord.app_commands.describe(일수="며칠 이내 일정을 볼지 (기본: 14일)")
+async def show_owcs_msc_schedule(interaction: discord.Interaction, 일수: int = 14):
+    await interaction.response.defer()
+    try:
+        matches  = await owcs_msc_module.fetch_matches()
+        upcoming = owcs_msc_module.get_upcoming(matches, days=일수)
+    except Exception as e:
+        await interaction.followup.send(f"일정을 불러오지 못했습니다: {e}", ephemeral=True)
+        return
+
+    if not upcoming:
+        await interaction.followup.send(
+            f"향후 {일수}일 내 예정된 OWCS MSC 경기가 없습니다.\n"
+            "*(Liquipedia에 아직 날짜가 등록되지 않았을 수 있습니다)*"
+        )
+        return
+
+    day_groups = owcs_msc_module.group_by_day(upcoming)
+    has_ongoing = any(owcs_msc_module.is_ongoing(m) for m in upcoming)
+
+    files = []
+    for day_key, day_matches in list(day_groups.items())[:4]:
+        buf = await owcs_image.draw_match_day(day_matches)
+        files.append(discord.File(buf, filename=f"owcs_msc_{day_key}.png"))
+
+    content = f"📅 **OWCS MSC 2026 경기 일정 (향후 {일수}일)**\n*출처: Liquipedia*"
+    if has_ongoing:
+        content += "\n🔴 현재 경기 진행 중!"
+    await interaction.followup.send(content=content, files=files)
+
+
+@bot.tree.command(name="owcs국제전알림설정", description="OWCS MSC 2026 경기 30분 전 알림을 받을 채널을 설정합니다")
+@discord.app_commands.describe(채널="알림을 받을 채널")
+async def set_owcs_msc_channel(interaction: discord.Interaction, 채널: discord.TextChannel):
+    await db.set_owcs_msc_channel(interaction.guild_id, 채널.id)
+    await interaction.response.send_message(
+        f"{채널.mention} 채널에 OWCS MSC 2026 경기 시작 30분 전 알림을 보냅니다.", ephemeral=True
+    )
 
 
 @bot.tree.command(name="owcs주차알림설정", description="주차 마지막 경기 종료 후 순위 알림을 받을 채널을 설정합니다")
