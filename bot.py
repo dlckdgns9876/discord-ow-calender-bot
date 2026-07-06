@@ -618,6 +618,31 @@ async def show_owcs_int_schedule(interaction: discord.Interaction, 일수: int =
     await interaction.followup.send(content=content, files=files)
 
 
+@bot.tree.command(name="owcs국제전정보", description="OWCS 2026 국제전 대회 정보를 보여줍니다")
+async def show_owcs_int_info(interaction: discord.Interaction):
+    await interaction.response.defer()
+    info = await owcs_int_module.fetch_tournament_info()
+    if not info:
+        await interaction.followup.send("대회 정보를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.", ephemeral=True)
+        return
+
+    embed = discord.Embed(
+        title=info["name"],
+        color=discord.Color.gold(),
+    )
+    embed.add_field(name="📅 일정", value=f"{info['sdate']} ~ {info['edate']}", inline=True)
+    embed.add_field(name="📍 장소", value=info["location"] or "미정", inline=True)
+    embed.add_field(name="💰 상금", value=info["prize"] or "미정", inline=True)
+    embed.add_field(name="👥 참가팀", value=f"{info['team_number']}팀", inline=True)
+
+    if info["teams"]:
+        teams_text = "\n".join(f"• {t}" for t in info["teams"])
+        embed.add_field(name="🏆 참가팀 목록", value=teams_text, inline=False)
+
+    embed.set_footer(text="출처: Liquipedia")
+    await interaction.followup.send(embed=embed)
+
+
 @bot.tree.command(name="owcs국제전알림설정", description="OWCS MSC 2026 경기 30분 전 알림을 받을 채널을 설정합니다")
 @discord.app_commands.describe(채널="알림을 받을 채널")
 async def set_owcs_int_channel(interaction: discord.Interaction, 채널: discord.TextChannel):

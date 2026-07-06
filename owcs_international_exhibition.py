@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import json
 import asyncio
@@ -15,16 +16,103 @@ TOURNAMENTS = [
     "Overwatch Champions Series 2026 - Midseason Championship - Playoffs",
 ]
 
-CACHE_FILE = os.path.join(_BASE, "owcs_international_exhibition_cache.json")
-CACHE_TTL  = 3600
+CACHE_FILE      = os.path.join(_BASE, "owcs_international_exhibition_cache.json")
+INFO_CACHE_FILE = os.path.join(_BASE, "owcs_international_exhibition_info_cache.json")
+CACHE_TTL       = 3600
+INFO_CACHE_TTL  = 21600  # 6시간 — 대회 정보는 잘 안 바뀜
+
+WIKI_API  = "https://liquipedia.net/overwatch/api.php"
+WIKI_PAGE = "Overwatch_Champions_Series/2026/Midseason_Championship"
 
 _cache      = {"matches": [], "updated_at": 0}
+_info_cache = {"info": None, "updated_at": 0}
 _fetch_lock = asyncio.Lock()
 
 
 def _headers():
     key = os.getenv("LIQUIPEDIA_API_KEY", "")
     return {"Authorization": f"Apikey {key}", "Accept": "application/json"}
+
+
+def _wiki_headers():
+    return {"User-Agent": "DiscordOWCSBot/1.0 (contact: chang431@gmail.com)"}
+
+
+def _parse_info(wikitext: str) -> dict:
+    def field(name):
+        m = re.search(rf"^\|{name}\s*=\s*(.+)$", wikitext, re.MULTILINE)
+        return m.group(1).strip() if m else ""
+
+    sdate = field("sdate")   # 2026-07-29
+    edate = field("edate")   # 2026-08-02
+    prize_raw = field("prizepoolusd")
+    prize = f"${int(prize_raw):,} USD" if prize_raw.isdigit() else prize_raw
+
+    venue   = field("venue")
+    city    = field("city")
+    country = field("country")
+    location = ", ".join(filter(None, [venue, city, country]))
+
+    team_number = field("team_number")
+
+    # 참가팀: {{Opponent|TeamName 또는 {{TeamOpponent|TeamName
+    teams = re.findall(r"\{\{(?:Team)?Opponent\|([^|}>\n]+)", wikitext)
+    teams = [t.strip() for t in teams if t.strip() and "TBD" not in t]
+    # 중복 제거, 순서 유지
+    seen = set()
+    unique_teams = [t for t in teams if not (t in seen or seen.add(t))]
+
+    return {
+        "name":        field("name") or "OWCS 2026 Midseason Championship",
+        "sdate":       sdate,
+        "edate":       edate,
+        "location":    location,
+        "prize":       prize,
+        "team_number": team_number,
+        "teams":       unique_teams,
+    }
+
+
+async def fetch_tournament_info() -> dict | None:
+    global _info_cache
+    if time.time() - _info_cache["updated_at"] < INFO_CACHE_TTL and _info_cache["info"]:
+        return _info_cache["info"]
+
+    # 디스크 캐시 확인
+    try:
+        if os.path.exists(INFO_CACHE_FILE):
+            with open(INFO_CACHE_FILE, encoding="utf-8") as f:
+                saved = json.load(f)
+            if time.time() - saved.get("updated_at", 0) < INFO_CACHE_TTL:
+                _info_cache = saved
+                return _info_cache["info"]
+    except Exception:
+        pass
+
+    try:
+        params = {"action": "parse", "page": WIKI_PAGE, "prop": "wikitext", "format": "json"}
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                WIKI_API, params=params, headers=_wiki_headers(),
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as resp:
+                if resp.status == 429:
+                    print("MSC 정보: 위키 429 — 캐시 반환")
+                    return _info_cache.get("info")
+                if resp.status != 200:
+                    print(f"MSC 정보: 위키 HTTP {resp.status}")
+                    return _info_cache.get("info")
+                data = await resp.json()
+        wikitext = data.get("parse", {}).get("wikitext", {}).get("*", "")
+        info = _parse_info(wikitext)
+        _info_cache = {"info": info, "updated_at": time.time()}
+        with open(INFO_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(_info_cache, f, ensure_ascii=False)
+        print(f"MSC 정보: 위키 파싱 완료 (팀 {len(info['teams'])}개)")
+        return info
+    except Exception as e:
+        print(f"MSC 정보: 파싱 실패: {e}")
+        return _info_cache.get("info")
 
 
 def _load_cache():
