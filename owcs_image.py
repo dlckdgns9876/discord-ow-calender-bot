@@ -1,7 +1,8 @@
 import io
 import os
 import re
-import gzip
+import time
+import asyncio
 import json
 import aiohttp
 from datetime import datetime, timezone, timedelta
@@ -32,7 +33,28 @@ GRAY      = (110, 118, 140)
 ACCENT    = (220, 90,  0)
 ON_AIR    = (200, 30,  30)
 
-_logo_cache: dict[str, str | None] = {}
+_logo_cache: dict[str, str | None] = {}   # team → URL (None = 없음, 미등록 = 미조회)
+_wiki_last_req: float = 0.0               # 마지막 위키 API 호출 시각 (rate limit용)
+_WIKI_INTERVAL = 2.5                      # 최소 호출 간격 (초)
+_LOGO_URL_CACHE_FILE = os.path.join(_BASE, "logo_url_cache.json")
+
+
+def _load_logo_url_cache():
+    try:
+        if os.path.exists(_LOGO_URL_CACHE_FILE):
+            with open(_LOGO_URL_CACHE_FILE, encoding="utf-8") as f:
+                _logo_cache.update(json.load(f))
+            print(f"[로고 URL 캐시] {len(_logo_cache)}개 로드")
+    except Exception:
+        pass
+
+
+def _save_logo_url_cache():
+    try:
+        with open(_LOGO_URL_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(_logo_cache, f, ensure_ascii=False)
+    except Exception:
+        pass
 
 
 def _font(path: str, size: int) -> ImageFont.FreeTypeFont:
@@ -40,6 +62,27 @@ def _font(path: str, size: int) -> ImageFont.FreeTypeFont:
         return ImageFont.truetype(path, size)
     except Exception:
         return ImageFont.load_default()
+
+
+async def _wiki_get(session: aiohttp.ClientSession, params: dict) -> dict | None:
+    """Rate-limited Liquipedia 위키 API 호출. 429 시 None 반환 (캐시 안 함)."""
+    global _wiki_last_req
+    wait = _WIKI_INTERVAL - (time.monotonic() - _wiki_last_req)
+    if wait > 0:
+        await asyncio.sleep(wait)
+    try:
+        async with session.get(
+            LIQUIPEDIA_API, params=params, headers=HEADERS,
+            timeout=aiohttp.ClientTimeout(total=10),
+        ) as resp:
+            _wiki_last_req = time.monotonic()
+            if resp.status == 429:
+                return None   # rate limited — 캐시하지 않음
+            if resp.status != 200:
+                return {}
+            return await resp.json(content_type=None)
+    except Exception:
+        return {}
 
 
 async def _fetch_team_logo_url(team_name: str) -> str | None:
@@ -50,13 +93,12 @@ async def _fetch_team_logo_url(team_name: str) -> str | None:
     try:
         async with aiohttp.ClientSession() as session:
             # 1) 팀 페이지 위키텍스트에서 |imagedark= or |image= 파일명 파싱
-            params = {"action": "parse", "page": team_name, "prop": "wikitext", "format": "json", "redirects": "1"}
-            async with session.get(LIQUIPEDIA_API, params=params, headers=HEADERS,
-                                   timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                raw = await resp.read()
-                if resp.headers.get("Content-Encoding") == "gzip":
-                    raw = gzip.decompress(raw)
-                data = json.loads(raw.decode("utf-8")) if raw else {}
+            data = await _wiki_get(session, {
+                "action": "parse", "page": team_name,
+                "prop": "wikitext", "format": "json", "redirects": "1",
+            })
+            if data is None:            # 429 — 나중에 재시도 가능하도록 캐시 안 함
+                return None
             wikitext = data.get("parse", {}).get("wikitext", {}).get("*", "")
 
             filename = None
@@ -70,33 +112,29 @@ async def _fetch_team_logo_url(team_name: str) -> str | None:
 
             if not filename:
                 _logo_cache[team_name] = None
+                _save_logo_url_cache()
                 return None
 
             # 2) File: URL 조회
-            params2 = {
-                "action": "query",
-                "titles": f"File:{filename}",
-                "prop": "imageinfo",
-                "iiprop": "url",
-                "format": "json",
-            }
-            async with session.get(LIQUIPEDIA_API, params=params2, headers=HEADERS,
-                                   timeout=aiohttp.ClientTimeout(total=10)) as resp2:
-                raw2 = await resp2.read()
-                if resp2.headers.get("Content-Encoding") == "gzip":
-                    raw2 = gzip.decompress(raw2)
-                data2 = json.loads(raw2.decode("utf-8")) if raw2 else {}
+            data2 = await _wiki_get(session, {
+                "action": "query", "titles": f"File:{filename}",
+                "prop": "imageinfo", "iiprop": "url", "format": "json",
+            })
+            if data2 is None:           # 429 — 캐시하지 않고 다음 기회에 재시도
+                return None
             pages = data2.get("query", {}).get("pages", {})
             url = None
             for page in pages.values():
-                info = page.get("imageinfo", [{}])
-                if info:
-                    url = info[0].get("url")
+                info_list = page.get("imageinfo", [])
+                if info_list:
+                    url = info_list[0].get("url")
             _logo_cache[team_name] = url
+            _save_logo_url_cache()      # 성공 시 디스크에 영구 저장
             return url
     except Exception as e:
         print(f"[OWCS 로고] {team_name} 실패: {e}")
         _logo_cache[team_name] = None
+        _save_logo_url_cache()
         return None
 
 
@@ -355,3 +393,6 @@ async def draw_standings(standings: list, title: str = "STANDINGS") -> io.BytesI
     img.save(buf, format="PNG")
     buf.seek(0)
     return buf
+
+
+_load_logo_url_cache()
