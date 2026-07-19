@@ -130,6 +130,8 @@ async def check_owcs():
 
         # ── MSC 30분 전 알림 ────────────────────────────────
         msc_matches = await owcs_int_module.fetch_matches()
+        if not msc_matches:
+            msc_matches = await owcs_int_module.fetch_page_schedule()
         for match in owcs_int_module.get_notify_targets(msc_matches):
             mid = owcs_int_module.match_id(match)
             if await db.is_owcs_notified(mid):
@@ -576,7 +578,7 @@ async def test_owcs_notify(interaction: discord.Interaction):
 
     match = upcoming[0]
     info = owcs_module.format_info(match)
-    embed = discord.Embed(title="🎮 OWCS 경기 1시간 전 알림! (테스트)", color=discord.Color.orange())
+    embed = discord.Embed(title="🎮 OWCS 경기 30분 전 알림! (테스트)", color=discord.Color.orange())
     embed.add_field(name="대회",      value=info["label"],   inline=False)
     embed.add_field(name="시작 시간", value=info["time"],    inline=True)
     embed.add_field(name="경기",      value=info["matchup"], inline=False)
