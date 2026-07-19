@@ -640,7 +640,12 @@ async def show_owcs_int_info(interaction: discord.Interaction):
     embed.add_field(name="💰 상금", value=info["prize"] or "미정", inline=True)
     embed.add_field(name="👥 참가팀", value=f"{info['team_number']}팀", inline=True)
 
-    if info["teams"]:
+    groups = info.get("groups", {})
+    if groups:
+        for gname, gteams in groups.items():
+            teams_text = "\n".join(f"• {t}" for t in gteams) if gteams else "미정"
+            embed.add_field(name=f"📋 {gname}", value=teams_text, inline=True)
+    elif info.get("teams"):
         teams_text = "\n".join(f"• {t}" for t in info["teams"])
         embed.add_field(name="🏆 참가팀 목록", value=teams_text, inline=False)
 

@@ -65,6 +65,36 @@ def _wiki_headers():
     return {"User-Agent": "DiscordOWCSBot/1.0 (contact: chang431@gmail.com)"}
 
 
+def _parse_groups(wikitext: str) -> dict:
+    """그룹 스테이지 위키텍스트에서 그룹별 팀 목록 파싱"""
+    groups = {}
+    current_group = None
+    current_teams = []
+
+    for line in wikitext.split('\n'):
+        gm = re.match(r'===Group ([A-Z])===', line.strip())
+        if gm:
+            if current_group is not None:
+                groups[f"Group {current_group}"] = current_teams
+            current_group = gm.group(1)
+            current_teams = []
+            continue
+
+        if current_group is None:
+            continue
+
+        tm = re.search(r'\|opponent[12]=\{\{TeamOpponent\|([^|}]+)\}\}', line)
+        if tm:
+            name = _normalize_team(tm.group(1).strip())
+            if name and name not in current_teams:
+                current_teams.append(name)
+
+    if current_group is not None:
+        groups[f"Group {current_group}"] = current_teams
+
+    return groups
+
+
 def _parse_info(wikitext: str) -> dict:
     def field(name):
         m = re.search(rf"^\|{name}\s*=\s*(.+)$", wikitext, re.MULTILINE)
@@ -105,20 +135,22 @@ async def fetch_tournament_info() -> dict | None:
     if time.time() - _info_cache["updated_at"] < INFO_CACHE_TTL and _info_cache["info"]:
         return _info_cache["info"]
 
-    # 디스크 캐시 확인
+    # 디스크 캐시 확인 (groups 키가 있어야 유효한 캐시로 인정)
     try:
         if os.path.exists(INFO_CACHE_FILE):
             with open(INFO_CACHE_FILE, encoding="utf-8") as f:
                 saved = json.load(f)
-            if time.time() - saved.get("updated_at", 0) < INFO_CACHE_TTL:
+            if (time.time() - saved.get("updated_at", 0) < INFO_CACHE_TTL
+                    and saved.get("info", {}).get("groups") is not None):
                 _info_cache = saved
                 return _info_cache["info"]
     except Exception:
         pass
 
     try:
-        params = {"action": "parse", "page": WIKI_PAGE, "prop": "wikitext", "format": "json"}
         async with aiohttp.ClientSession() as session:
+            # 1) 메인 토너먼트 페이지
+            params = {"action": "parse", "page": WIKI_PAGE, "prop": "wikitext", "format": "json"}
             async with session.get(
                 WIKI_API, params=params, headers=_wiki_headers(),
                 timeout=aiohttp.ClientTimeout(total=15),
@@ -130,8 +162,29 @@ async def fetch_tournament_info() -> dict | None:
                     print(f"MSC 정보: 위키 HTTP {resp.status}")
                     return _info_cache.get("info")
                 data = await resp.json()
-        wikitext = data.get("parse", {}).get("wikitext", {}).get("*", "")
-        info = _parse_info(wikitext)
+            wikitext = data.get("parse", {}).get("wikitext", {}).get("*", "")
+            info = _parse_info(wikitext)
+
+            # 2) Group Stage 페이지 → 그룹별 팀 파싱
+            gs_params = {
+                "action": "parse",
+                "page": WIKI_SCHEDULE_PAGES["Group Stage"],
+                "prop": "wikitext",
+                "format": "json",
+            }
+            async with session.get(
+                WIKI_API, params=gs_params, headers=_wiki_headers(),
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as gs_resp:
+                if gs_resp.status == 200:
+                    gs_data = await gs_resp.json()
+                    gs_wikitext = gs_data.get("parse", {}).get("wikitext", {}).get("*", "")
+                    info["groups"] = _parse_groups(gs_wikitext)
+                    print(f"MSC 그룹: {list(info['groups'].keys())} 파싱 완료")
+                else:
+                    print(f"MSC 그룹: HTTP {gs_resp.status}")
+                    info["groups"] = {}
+
         _info_cache = {"info": info, "updated_at": time.time()}
         with open(INFO_CACHE_FILE, "w", encoding="utf-8") as f:
             json.dump(_info_cache, f, ensure_ascii=False)
