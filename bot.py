@@ -593,6 +593,9 @@ async def show_owcs_int_schedule(interaction: discord.Interaction, 일수: int =
     try:
         matches  = await owcs_int_module.fetch_matches()
         upcoming = owcs_int_module.get_upcoming(matches, days=일수)
+        if not upcoming:
+            wiki_matches = await owcs_int_module.fetch_page_schedule()
+            upcoming = owcs_int_module.get_upcoming(wiki_matches, days=일수)
     except Exception as e:
         await interaction.followup.send(f"일정을 불러오지 못했습니다: {e}", ephemeral=True)
         return

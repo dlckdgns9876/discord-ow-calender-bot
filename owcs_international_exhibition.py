@@ -7,6 +7,7 @@ import aiohttp
 from datetime import datetime, timezone, timedelta
 
 KST      = timezone(timedelta(hours=9))
+CEST     = timezone(timedelta(hours=2))
 API_BASE = "https://api.liquipedia.net/api/v3/match"
 _BASE    = os.path.dirname(os.path.abspath(__file__))
 
@@ -16,17 +17,31 @@ TOURNAMENTS = [
     "Overwatch Champions Series 2026 - Midseason Championship - Playoffs",
 ]
 
-CACHE_FILE      = os.path.join(_BASE, "owcs_international_exhibition_cache.json")
-INFO_CACHE_FILE = os.path.join(_BASE, "owcs_international_exhibition_info_cache.json")
+CACHE_FILE           = os.path.join(_BASE, "owcs_international_exhibition_cache.json")
+INFO_CACHE_FILE      = os.path.join(_BASE, "owcs_international_exhibition_info_cache.json")
+WIKI_MATCH_CACHE_FILE = os.path.join(_BASE, "owcs_international_exhibition_wiki_cache.json")
 CACHE_TTL       = 3600
 INFO_CACHE_TTL  = 21600  # 6시간 — 대회 정보는 잘 안 바뀜
 
 WIKI_API  = "https://liquipedia.net/overwatch/api.php"
 WIKI_PAGE = "Overwatch_Champions_Series/2026/Midseason_Championship"
+WIKI_SCHEDULE_PAGES = {
+    "Group Stage": "Overwatch_Champions_Series/2026/Midseason_Championship/Group_Stage",
+    "Playoffs":    "Overwatch_Champions_Series/2026/Midseason_Championship/Playoffs",
+}
 
-_cache      = {"matches": [], "updated_at": 0}
-_info_cache = {"info": None, "updated_at": 0}
-_fetch_lock = asyncio.Lock()
+_TEAM_NAME_FIXES = {
+    "9z team":    "9z Team",
+    "virtus.pro": "Virtus.pro",
+    "jd gaming":  "JD Gaming",
+    "varrel":     "VARREL",
+    "t1":         "T1",
+}
+
+_cache       = {"matches": [], "updated_at": 0}
+_info_cache  = {"info": None, "updated_at": 0}
+_wiki_cache  = {"matches": [], "updated_at": 0}
+_fetch_lock  = asyncio.Lock()
 
 
 def _headers():
@@ -238,4 +253,114 @@ def group_by_day(matches: list) -> dict:
     return dict(sorted(groups.items()))
 
 
+def _normalize_team(name: str) -> str:
+    lower = name.lower().strip()
+    return _TEAM_NAME_FIXES.get(lower, name.title())
+
+
+def _parse_msc_wikitext(wikitext: str, label: str) -> list:
+    matches = []
+    lines = wikitext.split('\n')
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        dm = re.search(r'\|date=(\w+ \d+, \d{4})\s*-\s*(\d{2}:\d{2})\s*\{\{Abbr/CEST\}\}', line)
+        if dm:
+            try:
+                dt = datetime.strptime(
+                    f"{dm.group(1)} {dm.group(2)}", "%B %d, %Y %H:%M"
+                ).replace(tzinfo=CEST).astimezone(KST)
+            except ValueError:
+                i += 1
+                continue
+            t1 = t2 = ""
+            map_winners = []
+            for j in range(i + 1, min(i + 40, len(lines))):
+                l = lines[j]
+                m1 = re.search(r'\|opponent1=\{\{TeamOpponent\|([^|}]+)\}\}', l)
+                m2 = re.search(r'\|opponent2=\{\{TeamOpponent\|([^|}]+)\}\}', l)
+                wm = re.search(r'\|winner=([12])\b', l)
+                if m1: t1 = _normalize_team(m1.group(1))
+                if m2: t2 = _normalize_team(m2.group(1))
+                if wm: map_winners.append(int(wm.group(1)))
+                if l.strip() == '}}' and t1 and t2:
+                    break
+            if t1 and t2:
+                s1 = sum(1 for w in map_winners if w == 1)
+                s2 = sum(1 for w in map_winners if w == 2)
+                matches.append({
+                    "dt": dt, "label": f"MSC 2026 {label}",
+                    "team1": t1, "team2": t2,
+                    "score1": s1, "score2": s2,
+                    "logo1": "", "logo2": "",
+                    "finished": bool(map_winners),
+                    "venue": label,
+                })
+        i += 1
+    return matches
+
+
+def _save_wiki_cache():
+    try:
+        data = {
+            "updated_at": _wiki_cache["updated_at"],
+            "matches": [{**m, "dt": m["dt"].isoformat()} for m in _wiki_cache["matches"]],
+        }
+        with open(WIKI_MATCH_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+    except Exception as e:
+        print(f"MSC: 위키 경기 캐시 저장 실패: {e}")
+
+
+def _load_wiki_match_cache():
+    global _wiki_cache
+    try:
+        if os.path.exists(WIKI_MATCH_CACHE_FILE):
+            with open(WIKI_MATCH_CACHE_FILE, encoding="utf-8") as f:
+                data = json.load(f)
+            matches = []
+            for m in data.get("matches", []):
+                m["dt"] = datetime.fromisoformat(m["dt"])
+                matches.append(m)
+            _wiki_cache = {"matches": matches, "updated_at": data.get("updated_at", 0)}
+            print(f"MSC: 위키 경기 캐시 로드: {len(matches)}경기")
+    except Exception as e:
+        print(f"MSC: 위키 경기 캐시 로드 실패: {e}")
+
+
+async def fetch_page_schedule() -> list:
+    global _wiki_cache
+    if time.time() - _wiki_cache["updated_at"] < CACHE_TTL:
+        return _wiki_cache["matches"]
+    all_matches = []
+    for label, page in WIKI_SCHEDULE_PAGES.items():
+        try:
+            params = {"action": "parse", "page": page, "prop": "wikitext", "format": "json"}
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    WIKI_API, params=params, headers=_wiki_headers(),
+                    timeout=aiohttp.ClientTimeout(total=15),
+                ) as resp:
+                    if resp.status == 404:
+                        continue
+                    if resp.status != 200:
+                        print(f"MSC: 위키 {label} HTTP {resp.status}")
+                        continue
+                    data = await resp.json()
+            wikitext = data.get("parse", {}).get("wikitext", {}).get("*", "")
+            parsed = _parse_msc_wikitext(wikitext, label)
+            print(f"MSC: 위키 {label} {len(parsed)}경기 파싱")
+            all_matches.extend(parsed)
+        except Exception as e:
+            print(f"MSC: 위키 {label} 파싱 실패: {e}")
+    if all_matches:
+        unique = list({(m["dt"].isoformat(), m["team1"], m["team2"]): m for m in all_matches}.values())
+        _wiki_cache = {"matches": sorted(unique, key=lambda x: x["dt"]), "updated_at": time.time()}
+        _save_wiki_cache()
+    else:
+        _wiki_cache["updated_at"] = time.time()
+    return _wiki_cache["matches"]
+
+
 _load_cache()
+_load_wiki_match_cache()
