@@ -31,11 +31,23 @@ WIKI_SCHEDULE_PAGES = {
 }
 
 _TEAM_NAME_FIXES = {
-    "9z team":    "9z Team",
-    "virtus.pro": "Virtus.pro",
-    "jd gaming":  "JD Gaming",
-    "varrel":     "VARREL",
-    "t1":         "T1",
+    # Liquipedia 페이지명과 정확히 일치해야 로고 조회 가능
+    "9z team":             "9z Team",
+    "virtus.pro":          "Virtus.pro",
+    "jd gaming":           "JD Gaming",
+    "varrel":              "VARREL",
+    "t1":                  "T1",
+    "zeta division":       "ZETA DIVISION",
+    "team falcons":        "Team Falcons",
+    "crazy raccoon":       "Crazy Raccoon",
+    "twisted minds":       "Twisted Minds",
+    "weibo gaming":        "Weibo Gaming",
+    "team liquid":         "Team Liquid",
+    "dallas fuel":         "Dallas Fuel",
+    "team secret":         "Team Secret",
+    "spacestation gaming": "Spacestation Gaming",
+    "geekay esports":      "Geekay Esports",
+    "all gamers":          "All Gamers",
 }
 
 _cache       = {"matches": [], "updated_at": 0}

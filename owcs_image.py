@@ -50,7 +50,7 @@ async def _fetch_team_logo_url(team_name: str) -> str | None:
     try:
         async with aiohttp.ClientSession() as session:
             # 1) 팀 페이지 위키텍스트에서 |imagedark= or |image= 파일명 파싱
-            params = {"action": "parse", "page": team_name, "prop": "wikitext", "format": "json"}
+            params = {"action": "parse", "page": team_name, "prop": "wikitext", "format": "json", "redirects": "1"}
             async with session.get(LIQUIPEDIA_API, params=params, headers=HEADERS,
                                    timeout=aiohttp.ClientTimeout(total=10)) as resp:
                 raw = await resp.read()
@@ -175,8 +175,11 @@ async def draw_match_day(day_matches: list) -> io.BytesIO:
                 continue
             except Exception:
                 pass
-        # 로컬 없으면 URL 다운로드
-        logo_imgs[team] = await _download_logo(url_map.get(team, ""))
+        # 로컬 없으면 match 데이터 URL → 없으면 위키에서 팀 페이지 조회
+        url = url_map.get(team, "")
+        if not url:
+            url = await _fetch_team_logo_url(team) or ""
+        logo_imgs[team] = await _download_logo(url)
 
     img  = Image.new("RGB", (IMG_W, img_h), BG)
     draw = ImageDraw.Draw(img)
