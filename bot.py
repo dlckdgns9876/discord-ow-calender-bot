@@ -129,6 +129,8 @@ async def check_owcs():
                 await db.mark_owcs_notified(mid)
 
         # ── MSC 30분 전 알림 ────────────────────────────────
+        if time.time() - owcs_int_module._cache["updated_at"] >= owcs_int_module.CACHE_TTL:
+            await asyncio.sleep(65)
         msc_matches = await owcs_int_module.fetch_matches()
         if not msc_matches:
             msc_matches = await owcs_int_module.fetch_page_schedule()

@@ -165,7 +165,8 @@ async def fetch_tournament_info() -> dict | None:
             wikitext = data.get("parse", {}).get("wikitext", {}).get("*", "")
             info = _parse_info(wikitext)
 
-            # 2) Group Stage 페이지 → 그룹별 팀 파싱
+            # 2) Group Stage 페이지 → 그룹별 팀 파싱 (위키 API 연속 호출 방지)
+            await asyncio.sleep(65)
             gs_params = {
                 "action": "parse",
                 "page": WIKI_SCHEDULE_PAGES["Group Stage"],
