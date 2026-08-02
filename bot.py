@@ -592,6 +592,13 @@ async def test_owcs_notify(interaction: discord.Interaction):
 @discord.app_commands.describe(일수="며칠 이내 일정을 볼지 (기본: 14일)")
 async def show_owcs_int_schedule(interaction: discord.Interaction, 일수: int = 14):
     await interaction.response.defer()
+
+    async def safe_send(**kwargs):
+        try:
+            await interaction.followup.send(**kwargs)
+        except discord.errors.NotFound:
+            pass
+
     try:
         matches  = await owcs_int_module.fetch_matches()
         upcoming = owcs_int_module.get_upcoming(matches, days=일수)
@@ -599,13 +606,15 @@ async def show_owcs_int_schedule(interaction: discord.Interaction, 일수: int =
             wiki_matches = await owcs_int_module.fetch_page_schedule()
             upcoming = owcs_int_module.get_upcoming(wiki_matches, days=일수)
     except Exception as e:
-        await interaction.followup.send(f"일정을 불러오지 못했습니다: {e}", ephemeral=True)
+        await safe_send(content=f"일정을 불러오지 못했습니다: {e}", ephemeral=True)
         return
 
     if not upcoming:
-        await interaction.followup.send(
-            f"향후 {일수}일 내 예정된 OWCS MSC 경기가 없습니다.\n"
-            "*(Liquipedia에 아직 날짜가 등록되지 않았을 수 있습니다)*"
+        await safe_send(
+            content=(
+                f"향후 {일수}일 내 예정된 OWCS MSC 경기가 없습니다.\n"
+                "*(Liquipedia API 제한 중이거나 아직 날짜가 등록되지 않았을 수 있습니다)*"
+            )
         )
         return
 
@@ -620,7 +629,7 @@ async def show_owcs_int_schedule(interaction: discord.Interaction, 일수: int =
     content = f"📅 **OWCS MSC 2026 경기 일정 (향후 {일수}일)**\n*출처: Liquipedia*"
     if has_ongoing:
         content += "\n🔴 현재 경기 진행 중!"
-    await interaction.followup.send(content=content, files=files)
+    await safe_send(content=content, files=files)
 
 
 @bot.tree.command(name="owcs국제전정보", description="OWCS 2026 국제전 대회 정보를 보여줍니다")

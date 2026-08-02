@@ -20,7 +20,7 @@ TOURNAMENTS = [
 CACHE_FILE           = os.path.join(_BASE, "owcs_international_exhibition_cache.json")
 INFO_CACHE_FILE      = os.path.join(_BASE, "owcs_international_exhibition_info_cache.json")
 WIKI_MATCH_CACHE_FILE = os.path.join(_BASE, "owcs_international_exhibition_wiki_cache.json")
-CACHE_TTL       = 3600
+CACHE_TTL       = 7200   # 2시간 — API 호출 빈도 줄이기
 INFO_CACHE_TTL  = 21600  # 6시간 — 대회 정보는 잘 안 바뀜
 
 WIKI_API  = "https://liquipedia.net/overwatch/api.php"
@@ -329,12 +329,15 @@ def _parse_msc_wikitext(wikitext: str, label: str) -> list:
     i = 0
     while i < len(lines):
         line = lines[i]
-        dm = re.search(r'\|date=(\w+ \d+, \d{4})\s*-\s*(\d{2}:\d{2})\s*\{\{Abbr/CEST\}\}', line)
+        dm = re.search(r'\|date=(\w+ \d+, \d{4})\s*-\s*(\d{2}:\d{2})\s*\{\{Abbr/(\w+)\}\}', line)
         if dm:
             try:
+                tz_abbr = dm.group(3).upper()
+                TZ_MAP = {"CEST": CEST, "CET": timezone(timedelta(hours=1)), "UTC": timezone.utc, "KST": KST}
+                tz = TZ_MAP.get(tz_abbr, CEST)
                 dt = datetime.strptime(
                     f"{dm.group(1)} {dm.group(2)}", "%B %d, %Y %H:%M"
-                ).replace(tzinfo=CEST).astimezone(KST)
+                ).replace(tzinfo=tz).astimezone(KST)
             except ValueError:
                 i += 1
                 continue
@@ -342,8 +345,8 @@ def _parse_msc_wikitext(wikitext: str, label: str) -> list:
             map_winners = []
             for j in range(i + 1, min(i + 40, len(lines))):
                 l = lines[j]
-                m1 = re.search(r'\|opponent1=\{\{TeamOpponent\|([^|}]+)\}\}', l)
-                m2 = re.search(r'\|opponent2=\{\{TeamOpponent\|([^|}]+)\}\}', l)
+                m1 = re.search(r'\|opponent1=\{\{1?TeamOpponent\|([^|}]+)\}\}', l)
+                m2 = re.search(r'\|opponent2=\{\{1?TeamOpponent\|([^|}]+)\}\}', l)
                 wm = re.search(r'\|winner=([12])\b', l)
                 if m1: t1 = _normalize_team(m1.group(1))
                 if m2: t2 = _normalize_team(m2.group(1))
@@ -421,9 +424,9 @@ async def fetch_page_schedule() -> list:
     if all_matches:
         unique = list({(m["dt"].isoformat(), m["team1"], m["team2"]): m for m in all_matches}.values())
         _wiki_cache = {"matches": sorted(unique, key=lambda x: x["dt"]), "updated_at": time.time()}
-        _save_wiki_cache()
     else:
         _wiki_cache["updated_at"] = time.time()
+    _save_wiki_cache()
     return _wiki_cache["matches"]
 
 
