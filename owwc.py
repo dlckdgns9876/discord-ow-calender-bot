@@ -171,6 +171,191 @@ _COUNTRY_CODE = {
 }
 
 
+# ── OWWC Group Stage Wiki 파싱 ─────────────────────────────────
+WIKI_API      = "https://liquipedia.net/overwatch/api.php"
+_GS_WIKI_PAGES = [
+    "Overwatch_World_Cup/2026/Group_Stage",
+    "Overwatch_World_Cup/2026",
+]
+GS_CACHE_FILE = os.path.join(_BASE, "owwc_group_stage_cache.json")
+GS_CACHE_TTL  = 1800   # 경기 중 30분 갱신
+
+_gs_cache = {"groups": [], "updated_at": 0}
+_gs_lock  = asyncio.Lock()
+
+
+def _load_gs_cache():
+    global _gs_cache
+    try:
+        if os.path.exists(GS_CACHE_FILE):
+            with open(GS_CACHE_FILE, encoding="utf-8") as f:
+                _gs_cache = json.load(f)
+            print(f"OWWC GS: 캐시 로드 {len(_gs_cache.get('groups', []))}그룹")
+    except Exception:
+        pass
+
+
+def _save_gs_cache():
+    try:
+        with open(GS_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(_gs_cache, f, ensure_ascii=False)
+    except Exception:
+        pass
+
+
+async def _wiki_fetch(session: aiohttp.ClientSession, page: str) -> str:
+    hdrs = {"User-Agent": "DiscordOWCSBot/1.0 (contact: chang431@gmail.com)"}
+    try:
+        async with session.get(
+            WIKI_API,
+            params={"action": "parse", "page": page, "prop": "wikitext",
+                    "format": "json", "redirects": "1"},
+            headers=hdrs, timeout=aiohttp.ClientTimeout(total=15),
+        ) as r:
+            if r.status == 429:
+                print(f"OWWC GS: 위키 429 ({page})")
+                return ""
+            if r.status != 200:
+                print(f"OWWC GS: 위키 HTTP {r.status} ({page})")
+                return ""
+            d = await r.json(content_type=None)
+            return d.get("parse", {}).get("wikitext", {}).get("*", "")
+    except Exception as e:
+        print(f"OWWC GS: 위키 오류 {e}")
+        return ""
+
+
+def _strip_tmpl(s: str) -> str:
+    """{{Team|name}} 등 위키 템플릿/링크 제거 → 팀 이름만 추출"""
+    s = re.sub(r"\{\{[Tt]eam\|([^|}]+)[^}]*\}\}", r"\1", s)
+    s = re.sub(r"\{\{[^|{]+\|([^|}]+)[^}]*\}\}", r"\1", s)
+    s = re.sub(r"\{\{[^}]+\}\}", "", s)
+    s = re.sub(r"\[\[(?:[^\]|]+\|)?([^\]]+)\]\]", r"\1", s)
+    return s.strip()
+
+
+def _param_val(block: str, key: str) -> str:
+    """block에서 key= 값을 중첩 {{ }} 포함해 추출 (|로 끊기지 않음)"""
+    m = re.search(r"\|" + re.escape(key) + r"\s*=\s*", block)
+    if not m:
+        return ""
+    start, depth, i = m.end(), 0, m.end()
+    while i < len(block) - 1:
+        two = block[i:i+2]
+        if two == "{{":
+            depth += 1; i += 2
+        elif two == "}}":
+            if depth == 0:
+                break
+            depth -= 1; i += 2
+        elif block[i] in ("|", "\n") and depth == 0:
+            break
+        else:
+            i += 1
+    return block[start:i].strip()
+
+
+def _parse_single_group(block: str) -> dict | None:
+    m = re.search(r"\|title\s*=\s*([^|\n}]+)", block)
+    if not m:
+        return None
+    title = m.group(1).strip()
+    if not re.search(r"Group\s+[A-Z]", title, re.IGNORECASE):
+        return None
+
+    def _int(key: str) -> int:
+        im = re.search(rf"\|{re.escape(key)}\s*=\s*(-?\d+)", block)
+        return int(im.group(1)) if im else 0
+
+    teams = []
+    for n in range(1, 17):
+        pbg_m = re.search(rf"\|pbg{n}\s*=\s*([^|\n}}]+)", block)
+        if not pbg_m:
+            break
+        pbg = pbg_m.group(1).strip().lower()
+
+        raw = _param_val(block, f"p{n}") or _param_val(block, f"team{n}")
+        name = _strip_tmpl(raw)
+        if not name:
+            continue
+
+        w  = _int(f"p{n}win")
+        l  = _int(f"p{n}loss")
+        mw = _int(f"p{n}score")
+        ml = _int(f"p{n}scoreagainst")
+        status = "advanced" if "up" in pbg else "eliminated" if "down" in pbg else ""
+
+        teams.append({
+            "rank":   n,
+            "code":   _COUNTRY_CODE.get(name, name[:3].upper()),
+            "name":   name,
+            "W":      w,   "L":     l,
+            "map_w":  mw,  "map_l": ml,
+            "diff":   mw - ml,
+            "status": status,
+        })
+
+    return {"name": title, "teams": teams} if teams else None
+
+
+def _parse_group_tables(wikitext: str) -> list:
+    """위키텍스트의 GroupTableLeague 블록 전체 파싱"""
+    groups = []
+    pos = 0
+    while True:
+        start = wikitext.find("{{GroupTableLeague", pos)
+        if start == -1:
+            break
+        # {{ }} 깊이 추적으로 블록 끝 찾기
+        depth, i, end = 0, start, start
+        while i < len(wikitext) - 1:
+            two = wikitext[i:i+2]
+            if two == "{{":
+                depth += 1
+                i += 2
+            elif two == "}}":
+                depth -= 1
+                i += 2
+                if depth == 0:
+                    end = i
+                    break
+            else:
+                i += 1
+        block = wikitext[start:end]
+        pos   = end if end > start else start + 20
+        g = _parse_single_group(block)
+        if g:
+            groups.append(g)
+    return sorted(groups, key=lambda g: g["name"])
+
+
+async def fetch_group_standings() -> list:
+    """Liquipedia MediaWiki API로 OWWC Group Stage 순위 파싱 (캐시 30분)"""
+    global _gs_cache
+    if time.time() - _gs_cache.get("updated_at", 0) < GS_CACHE_TTL:
+        return _gs_cache.get("groups", [])
+
+    async with _gs_lock:
+        if time.time() - _gs_cache.get("updated_at", 0) < GS_CACHE_TTL:
+            return _gs_cache.get("groups", [])
+
+        async with aiohttp.ClientSession() as session:
+            wikitext = ""
+            for i, page in enumerate(_GS_WIKI_PAGES):
+                if i > 0:
+                    await asyncio.sleep(3)
+                wikitext = await _wiki_fetch(session, page)
+                if wikitext and "GroupTableLeague" in wikitext:
+                    print(f"OWWC GS: '{page}' 사용")
+                    break
+
+        groups = _parse_group_tables(wikitext) if wikitext else []
+        print(f"OWWC GS: {len(groups)}개 그룹 파싱")
+        _gs_cache = {"groups": groups, "updated_at": time.time()}
+        _save_gs_cache()
+        return groups
+
+
 def compute_group_standings(matches: list) -> list:
     """완료된 경기 데이터로 그룹 스탠딩 계산. venue/section에서 'Group X' 추출."""
     groups: dict[str, dict] = {}
@@ -222,3 +407,4 @@ def compute_group_standings(matches: list) -> list:
 
 
 _load_cache()
+_load_gs_cache()

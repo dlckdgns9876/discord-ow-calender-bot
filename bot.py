@@ -677,8 +677,11 @@ async def set_owcs_int_channel(interaction: discord.Interaction, 채널: discord
 async def show_owwc_group_standings(interaction: discord.Interaction):
     await interaction.response.defer()
     try:
-        matches = await owwc_module.fetch_matches()
-        groups  = owwc_module.compute_group_standings(matches)
+        # 위키 파싱 우선, 실패 시 v3 API 경기 결과로 집계
+        groups = await owwc_module.fetch_group_standings()
+        if not groups:
+            matches = await owwc_module.fetch_matches()
+            groups  = owwc_module.compute_group_standings(matches)
     except Exception as e:
         await interaction.followup.send(f"데이터를 불러오지 못했습니다: {e}", ephemeral=True)
         return
@@ -686,7 +689,7 @@ async def show_owwc_group_standings(interaction: discord.Interaction):
     if not groups:
         await interaction.followup.send(
             "그룹 스탠딩 데이터가 없습니다.\n"
-            "*(Liquipedia API 제한 중이거나 경기 결과가 아직 없을 수 있습니다)*"
+            "*(Liquipedia 위키 로드 실패 또는 경기 결과가 아직 없을 수 있습니다)*"
         )
         return
 
