@@ -396,3 +396,173 @@ async def draw_standings(standings: list, title: str = "STANDINGS") -> io.BytesI
 
 
 _load_logo_url_cache()
+
+
+# ── OWWC Group Stage 스탠딩 이미지 ─────────────────────────────
+
+_GS_W   = 1240
+_GS_PAD = 20
+_GS_TH  = 55                                          # 타이틀 헤더 높이
+_GS_CH  = 268                                         # 카드 높이
+_GS_CW  = (_GS_W - _GS_PAD * 3) // 2                 # 카드 너비 ≈ 590
+_GS_H   = _GS_TH + _GS_PAD * 3 + _GS_CH * 2          # 전체 높이 ≈ 651
+
+_GS_DARK  = (15,  20,  45)
+_GS_BG    = (248, 249, 252)
+_GS_CARD  = (255, 255, 255)
+_GS_CHDR  = (238, 241, 252)
+_GS_ADV   = (232, 245, 233)
+_GS_ELIM  = (253, 232, 237)
+_GS_LINE  = (220, 224, 236)
+_GS_TEXT  = (20,  28,  55)
+_GS_GRAY  = (130, 136, 160)
+_GS_GREEN = (46,  125, 50)
+_GS_RED   = (198, 40,  40)
+_GS_GOLD  = (200, 150, 0)
+
+_COL_RANK = 14
+_COL_CODE = 46
+_COL_NAME = 104
+_COL_W    = _GS_CW - 245
+_COL_L    = _GS_CW - 195
+_COL_MAP  = _GS_CW - 148
+_COL_DIFF = _GS_CW - 68
+
+
+async def draw_owwc_group_stage(
+    groups: list,
+    date_range: str = "8월 20일 – 8월 23일",
+) -> io.BytesIO:
+    """
+    groups = owwc.compute_group_standings(matches) 결과
+    4개 그룹을 2×2 그리드로 렌더링 → PNG BytesIO
+    """
+    img  = Image.new("RGB", (_GS_W, _GS_H), _GS_BG)
+    draw = ImageDraw.Draw(img)
+
+    f_title = _font(FONT_BOLD,    22)
+    f_sub   = _font(FONT_REGULAR, 18)
+    f_dr    = _font(FONT_REGULAR, 13)
+    f_grp   = _font(FONT_BOLD,    17)
+    f_head  = _font(FONT_BOLD,    13)
+    f_rank  = _font(FONT_BOLD,    18)
+    f_code  = _font(FONT_BOLD,    14)
+    f_name  = _font(FONT_REGULAR, 14)
+    f_stat  = _font(FONT_BOLD,    15)
+    f_leg   = _font(FONT_REGULAR, 11)
+
+    # ── 전체 헤더 ──────────────────────────────────────────────
+    draw.rectangle([0, 0, _GS_W, _GS_TH], fill=_GS_DARK)
+    draw.text((22, 14), "OWWC 2026", font=f_title, fill=(255, 255, 255))
+    sep = int(draw.textlength("OWWC 2026", font=f_title))
+    draw.text((22 + sep + 12, 17), "| Group Stage", font=f_sub, fill=(170, 182, 220))
+    if date_range:
+        dw = int(draw.textlength(date_range, font=f_dr))
+        draw.text((_GS_W - dw - 20, 21), date_range, font=f_dr, fill=(155, 165, 200))
+
+    # ── 카드 배치 ──────────────────────────────────────────────
+    card_pos = [
+        (_GS_PAD,              _GS_TH + _GS_PAD),
+        (_GS_PAD * 2 + _GS_CW, _GS_TH + _GS_PAD),
+        (_GS_PAD,              _GS_TH + _GS_PAD * 2 + _GS_CH),
+        (_GS_PAD * 2 + _GS_CW, _GS_TH + _GS_PAD * 2 + _GS_CH),
+    ]
+
+    for idx, group in enumerate(groups[:4]):
+        cx, cy = card_pos[idx]
+        teams  = group.get("teams", [])
+
+        draw.rectangle([cx, cy, cx + _GS_CW, cy + _GS_CH],
+                       fill=_GS_CARD, outline=_GS_LINE, width=1)
+
+        # 그룹 타이틀 바
+        draw.rectangle([cx, cy, cx + _GS_CW, cy + 38], fill=_GS_CHDR)
+        draw.text((cx + 14, cy + 9), group.get("name", ""), font=f_grp, fill=_GS_TEXT)
+
+        # 컬럼 헤더
+        hy = cy + 43
+        draw.text((cx + _COL_RANK, hy), "#",  font=f_head, fill=_GS_GRAY)
+        draw.text((cx + _COL_CODE, hy), "팀", font=f_head, fill=_GS_GRAY)
+        for label, col, col_w in [("W", _COL_W, 38), ("L", _COL_L, 38),
+                                   ("맵", _COL_MAP, 48), ("+/-", _COL_DIFF, 60)]:
+            lw = int(draw.textlength(label, font=f_head))
+            draw.text((cx + col + (col_w - lw) // 2, hy), label, font=f_head, fill=_GS_GRAY)
+
+        draw.line([(cx, cy + 66), (cx + _GS_CW, cy + 66)], fill=_GS_LINE, width=1)
+
+        # ── 팀 행 ──────────────────────────────────────────────
+        ROW_TOP  = cy + 68
+        ROW_H_px = 44
+
+        for i, team in enumerate(teams[:4]):
+            ry     = ROW_TOP + i * ROW_H_px
+            status = team.get("status", "")
+
+            row_bg = _GS_ADV if status == "advanced" else _GS_ELIM if status == "eliminated" else _GS_CARD
+            draw.rectangle([cx + 1, ry, cx + _GS_CW - 1, ry + ROW_H_px - 1], fill=row_bg)
+
+            bar = _GS_GREEN if status == "advanced" else _GS_RED if status == "eliminated" else None
+            if bar:
+                draw.rectangle([cx + 1, ry, cx + 4, ry + ROW_H_px - 1], fill=bar)
+
+            draw.line([(cx, ry + ROW_H_px - 1), (cx + _GS_CW, ry + ROW_H_px - 1)],
+                      fill=_GS_LINE, width=1)
+
+            mid = ry + ROW_H_px // 2 - 9
+
+            # 순위
+            rank_s = str(team.get("rank", i + 1))
+            rc     = _GS_GOLD if team.get("rank") == 1 else _GS_TEXT
+            rw     = int(draw.textlength(rank_s, font=f_rank))
+            draw.text((cx + _COL_RANK + (24 - rw) // 2, mid), rank_s, font=f_rank, fill=rc)
+
+            # 국가 코드 배지
+            code  = team.get("code", "???")
+            bx    = cx + _COL_CODE
+            bw, bh = 50, 24
+            by    = ry + ROW_H_px // 2 - bh // 2
+            bc    = (55, 120, 55) if status == "advanced" else (175, 45, 55) if status == "eliminated" else (80, 90, 120)
+            draw.rounded_rectangle([bx, by, bx + bw, by + bh], radius=4, fill=bc)
+            cw = int(draw.textlength(code, font=f_code))
+            draw.text((bx + (bw - cw) // 2, by + (bh - 16) // 2), code, font=f_code, fill=(255, 255, 255))
+
+            # 팀 이름
+            name     = team.get("name", "")
+            max_name = _COL_W - _COL_NAME - 10
+            while name and int(draw.textlength(name, font=f_name)) > max_name:
+                name = name[:-1]
+            draw.text((cx + _COL_NAME, mid + 1), name, font=f_name, fill=_GS_TEXT)
+
+            # W
+            w_s = str(team.get("W", 0))
+            ww  = int(draw.textlength(w_s, font=f_stat))
+            draw.text((cx + _COL_W + (38 - ww) // 2, mid), w_s, font=f_stat, fill=_GS_GREEN)
+
+            # L
+            l_s = str(team.get("L", 0))
+            lw2 = int(draw.textlength(l_s, font=f_stat))
+            draw.text((cx + _COL_L + (38 - lw2) // 2, mid), l_s, font=f_stat, fill=_GS_RED)
+
+            # 맵
+            ms  = f"{team.get('map_w', 0)}-{team.get('map_l', 0)}"
+            msw = int(draw.textlength(ms, font=f_stat))
+            draw.text((cx + _COL_MAP + (48 - msw) // 2, mid), ms, font=f_stat, fill=_GS_TEXT)
+
+            # +/-
+            diff     = team.get("diff", 0)
+            diff_s   = f"+{diff}" if diff > 0 else str(diff)
+            diff_col = _GS_GREEN if diff > 0 else _GS_RED if diff < 0 else _GS_GRAY
+            dw2      = int(draw.textlength(diff_s, font=f_stat))
+            draw.text((cx + _COL_DIFF + (60 - dw2) // 2, mid), diff_s, font=f_stat, fill=diff_col)
+
+        # 범례
+        ly = cy + _GS_CH - 20
+        draw.ellipse([cx + 12, ly + 4, cx + 20, ly + 12], fill=_GS_GREEN)
+        draw.text((cx + 24, ly), "Playoffs 진출", font=f_leg, fill=_GS_GRAY)
+        draw.ellipse([cx + 122, ly + 4, cx + 130, ly + 12], fill=_GS_RED)
+        draw.text((cx + 134, ly), "탈락", font=f_leg, fill=_GS_GRAY)
+
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+    return buf

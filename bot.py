@@ -673,6 +673,31 @@ async def set_owcs_int_channel(interaction: discord.Interaction, 채널: discord
     )
 
 
+@bot.tree.command(name="owwc그룹스탠딩", description="OWWC 2026 Group Stage 팀별 순위를 이미지로 보여줍니다")
+async def show_owwc_group_standings(interaction: discord.Interaction):
+    await interaction.response.defer()
+    try:
+        matches = await owwc_module.fetch_matches()
+        groups  = owwc_module.compute_group_standings(matches)
+    except Exception as e:
+        await interaction.followup.send(f"데이터를 불러오지 못했습니다: {e}", ephemeral=True)
+        return
+
+    if not groups:
+        await interaction.followup.send(
+            "그룹 스탠딩 데이터가 없습니다.\n"
+            "*(Liquipedia API 제한 중이거나 경기 결과가 아직 없을 수 있습니다)*"
+        )
+        return
+
+    buf  = await owcs_image.draw_owwc_group_stage(groups)
+    file = discord.File(buf, filename="owwc_group_stage.png")
+    await interaction.followup.send(
+        content="📊 **OWWC 2026 Group Stage 순위**\n*출처: Liquipedia*",
+        file=file,
+    )
+
+
 @bot.tree.command(name="owcs주차알림설정", description="주차 마지막 경기 종료 후 순위 알림을 받을 채널을 설정합니다")
 @discord.app_commands.describe(채널="알림을 받을 채널")
 async def set_owcs_week_channel(interaction: discord.Interaction, 채널: discord.TextChannel):

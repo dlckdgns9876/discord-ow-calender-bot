@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import json
 import asyncio
@@ -145,6 +146,79 @@ def group_by_day(matches: list) -> dict:
 
 def match_id(m: dict) -> str:
     return f"owwc_{m['dt'].isoformat()}_{m['team1']}_{m['team2']}"
+
+
+_COUNTRY_CODE = {
+    "South Korea": "KOR", "Korea": "KOR",
+    "United States": "USA", "United States of America": "USA",
+    "Sweden": "SWE", "China": "CHN", "Japan": "JPN",
+    "Saudi Arabia": "KSA", "Australia": "AUS",
+    "Great Britain": "GBR", "United Kingdom": "GBR",
+    "Mexico": "MEX", "Germany": "GER", "Spain": "ESP",
+    "Canada": "CAN", "Thailand": "THA", "France": "FRA",
+    "Denmark": "DEN", "Colombia": "COL", "Brazil": "BRA",
+    "Chinese Taipei": "TPE", "Taiwan": "TWN",
+    "Philippines": "PHI", "New Zealand": "NZL",
+    "Italy": "ITA", "Portugal": "POR", "Netherlands": "NED",
+    "Belgium": "BEL", "Poland": "POL", "Finland": "FIN",
+    "Norway": "NOR", "Switzerland": "SUI", "Austria": "AUT",
+    "Argentina": "ARG", "Chile": "CHI", "Peru": "PER",
+    "Israel": "ISR", "Turkey": "TUR", "Indonesia": "IDN",
+    "Singapore": "SGP", "Malaysia": "MAS", "Vietnam": "VIE",
+    "Russia": "RUS", "Ukraine": "UKR", "Greece": "GRE",
+    "Romania": "ROU", "Hungary": "HUN",
+    "United Arab Emirates": "UAE", "Hong Kong": "HKG",
+}
+
+
+def compute_group_standings(matches: list) -> list:
+    """완료된 경기 데이터로 그룹 스탠딩 계산. venue/section에서 'Group X' 추출."""
+    groups: dict[str, dict] = {}
+
+    for m in matches:
+        if not m.get("finished"):
+            continue
+        venue = m.get("venue", "")
+        gm = re.search(r"Group\s+([A-Z])", venue, re.IGNORECASE)
+        if not gm:
+            continue
+        gname = f"Group {gm.group(1).upper()}"
+        if gname not in groups:
+            groups[gname] = {}
+
+        t1, t2 = m["team1"], m["team2"]
+        s1, s2 = m["score1"], m["score2"]
+        for name, won, mw, ml in [(t1, s1 > s2, s1, s2), (t2, s2 > s1, s2, s1)]:
+            if name not in groups[gname]:
+                groups[gname][name] = {"W": 0, "L": 0, "map_w": 0, "map_l": 0}
+            e = groups[gname][name]
+            e["W" if won else "L"] += 1
+            e["map_w"] += mw
+            e["map_l"] += ml
+
+    result = []
+    for gname in sorted(groups.keys()):
+        teams = sorted(
+            groups[gname].items(),
+            key=lambda x: (-x[1]["W"], x[1]["L"], -(x[1]["map_w"] - x[1]["map_l"])),
+        )
+        team_list = []
+        for i, (name, s) in enumerate(teams, 1):
+            diff = s["map_w"] - s["map_l"]
+            team_list.append({
+                "rank":   i,
+                "code":   _COUNTRY_CODE.get(name, name[:3].upper()),
+                "name":   name,
+                "W":      s["W"],
+                "L":      s["L"],
+                "map_w":  s["map_w"],
+                "map_l":  s["map_l"],
+                "diff":   diff,
+                "status": "advanced" if i <= 2 else "eliminated",
+            })
+        result.append({"name": gname, "teams": team_list})
+
+    return result
 
 
 _load_cache()
